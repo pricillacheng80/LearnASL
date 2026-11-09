@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SignBridge - Learn ASL & Connect with Peers</title>
+    <link rel="stylesheet" href="style.css">
+    <!-- Google Fonts for Clean, Accessible Typography -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+</head>
+<body>
+    <!-- App Header / Navigation -->
+    <header class="app-header">
+        <div class="logo-container">
+            <h1>SignBridge</h1>
+            <span class="badge">Student Edition</span>
+        </div>
+        <nav class="nav-menu">
+            <button class="nav-btn active" data-target="dashboard-view">Dashboard</button>
+            <button class="nav-btn" data-target="lessons-view">Video Lessons</button>
+            <button class="nav-btn" data-target="practice-view">Camera Practice</button>
+        </nav>
+        <div class="user-profile-badge">
+            <span id="user-streak">🔥 3 Day Streak</span>
+            <div class="avatar">Alex</div>
+        </div>
+    </header>
+
+    <!-- Main Content Area -->
+    <main class="main-content">
+        <!-- Dashboard View -->
+        <section id="dashboard-view" class="view-section active">
+            <div class="welcome-banner">
+                <h2>Welcome back, Alex! 👋</h2>
+                <p>Continue your journey to communicate smoothly with your non-verbal peers.</p>
+            </div>
+            
+            <div class="dashboard-grid">
+                <div class="card progress-card">
+                    <h3>Your Learning Progress</h3>
+                    <div class="progress-bar-container">
+                        <div class="progress-bar" style="width: 65%;"></div>
+                    </div>
+                    <p>65% of Level 1: Basic Sentences Completed</p>
+                    <button class="btn primary" onclick="switchView('practice-view')">Resume Practice</button>
+                </div>
+
+                <div class="card quick-tips">
+                    <h3>Connection Status</h3>
+                    <div id="network-status" class="status-indicator online">
+                        <span class="dot"></span> 
+                        <span id="network-text">Optimized for 5G / Low-Latency Network</span>
+                    </div>
+                    <p class="helper-text">Offline caching is active so you can practice even with unstable school Wi-Fi.</p>
+                </div>
+            </div>
+        </section>
+
+        <!-- Video Lessons View -->
+        <section id="lessons-view" class="view-section">
+            <div class="section-header">
+                <h2>Full Sentence ASL Lessons</h2>
+                <p>Watch native signers break down conversational sentences step-by-step.</p>
+            </div>
+            <div class="video-grid">
+                <div class="video-card" onclick="openVideoPlayer('Greeting & Intro Sentences')">
+                    <div class="thumbnail-placeholder">▶</div>
+                    <div class="video-info">
+                        <h4>1. "Nice to meet you today"</h4>
+                        <span>Duration: 4 mins • Beginner</span>
+                    </div>
+                </div>
+                <div class="video-card" onclick="openVideoPlayer('Asking How Someone Is')">
+                    <div class="thumbnail-placeholder">▶</div>
+                    <div class="video-info">
+                        <h4>2. "How are you feeling?"</h4>
+                        <span>Duration: 5 mins • Beginner</span>
+                    </div>
+                </div>
+                <div class="video-card" onclick="openVideoPlayer('School & Lunchtime')">
+                    <div class="thumbnail-placeholder">▶</div>
+                    <div class="video-info">
+                        <h4>3. "Do you want to sit together?"</h4>
+                        <span>Duration: 6 mins • Intermediate</span>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Camera Practice & Feedback View -->
+        <section id="practice-view" class="view-section">
+            <div class="practice-container">
+                <div class="target-sentence-box">
+                    <h3>Target Sentence to Sign:</h3>
+                    <p id="current-target-sentence">"Nice to meet you"</p>
+                    <button class="btn secondary" onclick="nextSentence()">Next Sentence</button>
+                </div>
+
+                <div class="camera-workspace">
+                    <div class="video-feed-wrapper">
+                        <!-- Simulated video feed / real webcam stream -->
+                        <video id="user-webcam" autoplay playsinline muted></video>
+                        <div id="ai-overlay-canvas" class="overlay-canvas">
+                            <!-- AI feedback bounding boxes / skeleton simulation -->
+                            <div class="feedback-badge" id="feedback-status">Waiting for camera...</div>
+                        </div>
+                    </div>
+                    <div class="feedback-sidebar">
+                        <h4>Real-Time AI Coaching</h4>
+                        <ul id="feedback-checklist">
+                            <li id="check-hands" class="pending">Hand placement detected</li>
+                            <li id="check-speed" class="pending">Signing speed: Normal</li>
+                            <li id="check-accuracy" class="pending">Accuracy score: --%</li>
+                        </ul>
+                        <button id="record-btn" class="btn primary" onclick="toggleRecording()">Start Practice Session</button>
+                    </div>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <!-- Script File Linking -->
+    <script src="script.js"></script>
+</body>
+</html>
