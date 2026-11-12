@@ -2,6 +2,13 @@
 const navButtons = document.querySelectorAll('.nav-btn');
 const views = document.querySelectorAll('.view-section');
 
+// --- Supabase Initialization ---
+const SUPABASE_URL = 'https://mecjgmcuwtqzkrmwecfq.supabase.co';
+const SUPABASE_ANON_KEY = 'sb_publishable_RNE3_cZ8XbDF_YJaFIA05w_hBcK2F2P';
+
+// Initialize the Supabase client
+const supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
 navButtons.forEach(btn => {
     btn.addEventListener('click', () => {
         const targetViewId = btn.getAttribute('data-target');
