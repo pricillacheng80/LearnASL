@@ -1,14 +1,10 @@
-// --- 1. Supabase Configuration & Offline-First Persistence ---
-// --- Supabase Initialization ---
+// --- 1. Supabase Initialization (Supports sb_publishable_ and legacy eyJ keys) ---
 const SUPABASE_URL = 'https://mecjgmcuwtqzkrmwecfq.supabase.co';
 const SUPABASE_ANON_KEY = 'sb_publishable_RNE3_cZ8XbDF_YJaFIA05w_hBcK2F2P';
 
-// Initialize the Supabase client
-const supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
-
+let supabaseClient = null;
 try {
-    // Accepts both new sb_publishable_ keys and legacy eyJ... tokens
-    if (window.supabase && SUPABASE_URL && SUPABASE_ANON_KEY && 
+    if (window.supabase && SUPABASE_URL && SUPABASE_ANON_KEY &&
        (SUPABASE_ANON_KEY.startsWith('sb_publishable_') || SUPABASE_ANON_KEY.startsWith('eyJ'))) {
         supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
     }
@@ -16,30 +12,36 @@ try {
     console.warn("Supabase initialization skipped. Running in local fallback mode:", err);
 }
 
-let currentUser = {
-    name: 'Guest Student',
+// --- 2. User State (Strictly Authenticated vs Guest) ---
+const defaultGuestUser = {
+    isAuthenticated: false,
+    name: 'Guest',
     email: '',
-    progress: 15,
+    progress: 0,
     streak: 1,
-    completedLessons: []
+    signsPracticed: 0,
+    quizzesPassed: 0
 };
 
-// Load saved progress on startup
+let currentUser = { ...defaultGuestUser };
+
 window.addEventListener('DOMContentLoaded', () => {
-    const saved = localStorage.getItem('signbridge_user');
+    const saved = localStorage.getItem('signbridge_authenticated_user');
     if (saved) {
-        currentUser = JSON.parse(saved);
-        document.getElementById('auth-modal').classList.remove('active');
-        updateUIWithUser();
+        const parsed = JSON.parse(saved);
+        if (parsed && parsed.isAuthenticated) {
+            currentUser = parsed;
+            document.getElementById('auth-modal').classList.remove('active');
+        }
     }
+    updateUIWithUser();
     renderMCQuestion();
     updateNetworkStatus();
 });
 
-// --- 2. Authentication (Sign Up, Log In, Guest) ---
+// --- 3. Smart Authentication (Email Check, Sign Up Confirmation & Log In) ---
 let authMode = 'login';
 
-// Open auth modal manually from the header button
 function openAuthModal() {
     document.getElementById('auth-modal').classList.add('active');
 }
@@ -56,135 +58,223 @@ async function handleAuthSubmit(event) {
     event.preventDefault();
     const email = document.getElementById('student-email').value.trim();
     const password = document.getElementById('student-password').value;
-    const nameInput = document.getElementById('student-name').value.trim();
+    const chosenUsername = document.getElementById('student-name').value.trim();
 
-    if (supabaseClient) {
-        try {
-            if (authMode === 'signup') {
-                const { data, error } = await supabaseClient.auth.signUp({
-                    email,
-                    password,
-                    options: { data: { full_name: nameInput || email.split('@')[0] } }
-                });
-                if (error) throw error;
-                currentUser.name = nameInput || email.split('@')[0];
-            } else {
-                const { data, error } = await supabaseClient.auth.signInWithPassword({ email, password });
-                if (error) throw error;
-                currentUser.name = data.user?.user_metadata?.full_name || email.split('@')[0];
-            }
-        } catch (err) {
-            alert(`Authentication note: ${err.message}. Falling back to local session.`);
-            currentUser.name = nameInput || email.split('@')[0];
-        }
-    } else {
-        // Local testing fallback if Supabase keys aren't pasted yet
-        currentUser.name = nameInput || email.split('@')[0];
+    if (!supabaseClient) {
+        alert("Supabase client unavailable. Please check your internet connection.");
+        return;
     }
 
-    currentUser.email = email;
+    try {
+        if (authMode === 'signup') {
+            // Sign Up Flow: Verifies active email & checks if already registered
+            const { data, error } = await supabaseClient.auth.signUp({
+                email,
+                password,
+                options: {
+                    data: { full_name: chosenUsername || email.split('@')[0] },
+                    emailRedirectTo: window.location.origin + window.location.pathname
+                }
+            });
+
+            if (error) {
+                alert(`Sign-up issue: ${error.message}`);
+                return;
+            }
+
+            // Supabase returns an empty identities array if the email already exists in the database
+            const emailExists = data.user && data.user.identities && data.user.identities.length === 0;
+            if (emailExists) {
+                alert("This email already exists in our database! Please log in using the Log In tab.");
+                switchAuthTab('login');
+                return;
+            }
+
+            alert("Account created! Please check your inbox for an active sign-up confirmation email to verify your account.");
+            if (data.session) {
+                completeUserLogin(email, chosenUsername || email.split('@')[0]);
+            } else {
+                switchAuthTab('login');
+            }
+        } else {
+            // Log In Flow
+            const { data, error } = await supabaseClient.auth.signInWithPassword({ email, password });
+
+            if (error) {
+                // If login fails because account does not exist or wrong credentials, suggest Sign Up
+                alert("Account not found or invalid credentials. If you haven't registered yet, please switch to 'Sign Up' to create an account.");
+                return;
+            }
+
+            const username = data.user?.user_metadata?.full_name || chosenUsername || email.split('@')[0];
+            completeUserLogin(email, username);
+        }
+    } catch (err) {
+        alert(`Authentication error: ${err.message}`);
+    }
+}
+
+async function completeUserLogin(email, username) {
+    // Load existing progress for this specific email if stored locally or in Supabase
+    const userStorageKey = `signbridge_progress_${email}`;
+    const storedAccountData = localStorage.getItem(userStorageKey);
+
+    if (storedAccountData) {
+        currentUser = JSON.parse(storedAccountData);
+        currentUser.isAuthenticated = true;
+        currentUser.name = username || currentUser.name;
+    } else {
+        currentUser = {
+            isAuthenticated: true,
+            name: username,
+            email: email,
+            progress: 10,
+            streak: 1,
+            signsPracticed: 0,
+            quizzesPassed: 0
+        };
+    }
+
+    // Attempt to sync progress from Supabase student_progress table
+    if (supabaseClient) {
+        try {
+            const { data } = await supabaseClient
+                .from('student_progress')
+                .select('*')
+                .eq('student_name', currentUser.name)
+                .maybeSingle();
+
+            if (data) {
+                currentUser.progress = Math.max(currentUser.progress, data.progress_percentage || 0);
+                currentUser.streak = Math.max(currentUser.streak, data.streak_days || 1);
+            }
+        } catch (e) {
+            console.warn("Could not fetch remote progress, using local profile:", e);
+        }
+    }
+
     saveProgress();
     document.getElementById('auth-modal').classList.remove('active');
     updateUIWithUser();
-}
-
-async function handleSmartAuth(email, password, isSignUpMode) {
-    if (isSignUpMode) {
-        // Step 1: Attempt sign up to check if email already exists or create new account
-        const { data, error } = await supabaseClient.auth.signUp({
-            email,
-            password,
-            options: {
-                emailRedirectTo: `${window.location.origin}/index.html`
-            }
-        });
-
-        if (error) {
-            alert("Error: " + error.message);
-            return;
-        }
-
-        // Supabase returns an empty identities array if the email is already registered
-        const emailAlreadyExists = data.user && data.user.identities && data.user.identities.length === 0;
-
-        if (emailAlreadyExists) {
-            alert("This email is already registered! Please switch to Log In.");
-        } else {
-            alert("Account created! Please check your inbox for an active confirmation email to verify your account.");
-        }
-    } else {
-        // Step 2: Login Flow if they chose to log in
-        const { data, error } = await supabaseClient.auth.signInWithPassword({
-            email,
-            password
-        });
-
-        if (error) {
-            alert("Login failed. Please check your credentials or sign up first.");
-        } else {
-            alert("Successfully logged in!");
-            document.getElementById('auth-modal').classList.remove('active');
-            updateUIWithUser();
-        }
-    }
 }
 
 function continueAsGuest() {
-    currentUser.name = 'Guest';
-    currentUser.email = '';
-    saveProgress();
+    currentUser = { ...defaultGuestUser };
+    localStorage.removeItem('signbridge_authenticated_user');
     document.getElementById('auth-modal').classList.remove('active');
     updateUIWithUser();
 }
 
-function logoutUser() {
-    if (confirm('Sign out? Your progress will be saved locally.')) {
-        // Clear saved user session data
-        localStorage.removeItem('signbridge_user');
-        currentUser = { name: 'Guest', email: '', progress: 15, streak: 1, completedLessons: [] };
+async function logoutUser() {
+    if (confirm('Sign out of your account? Your progress is saved.')) {
+        if (supabaseClient) {
+            await supabaseClient.auth.signOut().catch(() => {});
+        }
+        localStorage.removeItem('signbridge_authenticated_user');
+        currentUser = { ...defaultGuestUser };
         
-        // Switch view back to the default dashboard
+        // Return cleanly to the home dashboard and open the Sign In modal
         switchView('dashboard-view');
-        
-        // Show the authentication modal again
-        openAuthModal();
-        
-        // Refresh UI elements
         updateUIWithUser();
+        openAuthModal();
     }
 }
 
 async function saveProgress() {
-    localStorage.setItem('signbridge_user', JSON.stringify(currentUser));
-    if (supabaseClient && currentUser.email) {
-        await supabaseClient.from('student_progress').upsert({
-            student_name: currentUser.name,
-            progress_percentage: currentUser.progress,
-            streak_days: currentUser.streak
-        });
+    // Only persist progress if user is logged into an account
+    if (!currentUser.isAuthenticated || !currentUser.email) return;
+
+    localStorage.setItem('signbridge_authenticated_user', JSON.stringify(currentUser));
+    localStorage.setItem(`signbridge_progress_${currentUser.email}`, JSON.stringify(currentUser));
+
+    if (supabaseClient) {
+        try {
+            await supabaseClient.from('student_progress').upsert({
+                student_name: currentUser.name,
+                progress_percentage: currentUser.progress,
+                streak_days: currentUser.streak
+            });
+        } catch (e) {
+            console.warn("Cloud sync skipped:", e);
+        }
     }
 }
 
 function updateUIWithUser() {
-    document.getElementById('welcome-heading').textContent = `Welcome back, ${currentUser.name}! 👋`;
-    document.getElementById('user-avatar').textContent = currentUser.name.charAt(0).toUpperCase();
-    document.getElementById('user-streak').textContent = `🔥 ${currentUser.streak} Day Streak`;
-    document.getElementById('overall-progress-bar').style.width = `${currentUser.progress}%`;
-
     const authBtn = document.getElementById('header-auth-btn');
-    if (currentUser.name === 'Guest' || !currentUser.email) {
-        authBtn.textContent = 'Sign In';
+    const streakBadge = document.getElementById('user-streak');
+    const dashLocked = document.getElementById('dashboard-locked-state');
+    const dashUnlocked = document.getElementById('dashboard-unlocked-state');
+    const profileLocked = document.getElementById('profile-locked-screen');
+    const profileUnlocked = document.getElementById('profile-unlocked-screen');
+
+    if (!currentUser.isAuthenticated) {
+        // Guest / Logged-Out UI State (Progress strictly hidden)
+        document.getElementById('welcome-heading').textContent = 'Welcome, Guest! 👋';
+        document.getElementById('user-avatar').textContent = 'G';
+        streakBadge.style.display = 'none';
+
+        authBtn.textContent = 'Sign In / Up';
         authBtn.onclick = openAuthModal;
-    } else {
-        authBtn.textContent = 'Sign Out';
-        authBtn.onclick = logoutUser;
+
+        dashLocked.style.display = 'block';
+        dashUnlocked.style.display = 'none';
+        profileLocked.style.display = 'block';
+        profileUnlocked.style.display = 'none';
+        return;
     }
 
+    // Authenticated Student UI State
+    document.getElementById('welcome-heading').textContent = `Welcome back, ${currentUser.name}! 👋`;
+    document.getElementById('user-avatar').textContent = currentUser.name.charAt(0).toUpperCase();
+    streakBadge.style.display = 'inline';
+    streakBadge.textContent = `🔥 ${currentUser.streak} Day Streak`;
+
+    authBtn.textContent = 'Sign Out';
+    authBtn.onclick = logoutUser;
+
+    dashLocked.style.display = 'none';
+    dashUnlocked.style.display = 'flex';
+    profileLocked.style.display = 'none';
+    profileUnlocked.style.display = 'block';
+
+    // Update Dashboard Progress Bar
+    document.getElementById('overall-progress-bar').style.width = `${currentUser.progress}%`;
     const unitLabel = currentUser.progress < 50 ? 'Unit 1: ASL Alphabet (A–Z)' : 'Unit 2: Full School Sentences';
     document.getElementById('progress-summary-text').innerHTML = `${currentUser.progress}% Complete • Current Unit: <strong>${unitLabel}</strong>`;
+
+    // Update Profile Page Metrics
+    document.getElementById('profile-avatar-large').textContent = currentUser.name.charAt(0).toUpperCase();
+    document.getElementById('profile-username-display').textContent = currentUser.name;
+    document.getElementById('profile-email-display').textContent = currentUser.email;
+    document.getElementById('profile-streak-val').textContent = `🔥 ${currentUser.streak} Day${currentUser.streak > 1 ? 's' : ''}`;
+    document.getElementById('profile-session-val').textContent = `${currentUser.signsPracticed} Sign${currentUser.signsPracticed === 1 ? '' : 's'} Practiced`;
+    document.getElementById('profile-unit-status').textContent = `Current Unit: ${unitLabel}`;
+    document.getElementById('profile-mastery-val').textContent = `${currentUser.progress}%`;
+    document.getElementById('profile-progress-bar').style.width = `${currentUser.progress}%`;
+
+    // Update Earned Awards
+    toggleAward('award-first-step', 'status-award-1', currentUser.signsPracticed >= 1 || currentUser.progress > 10);
+    toggleAward('award-alphabet-ace', 'status-award-2', currentUser.progress >= 25);
+    toggleAward('award-sentence-builder', 'status-award-3', currentUser.progress >= 50);
+    toggleAward('award-quiz-master', 'status-award-4', currentUser.quizzesPassed >= 3);
 }
 
-// --- 3. Navigation & View Switching ---
+function toggleAward(cardId, statusId, isUnlocked) {
+    const card = document.getElementById(cardId);
+    const badge = document.getElementById(statusId);
+    if (isUnlocked) {
+        card.classList.add('unlocked');
+        badge.className = 'award-status unlocked';
+        badge.textContent = 'Unlocked!';
+    } else {
+        card.classList.remove('unlocked');
+        badge.className = 'award-status locked';
+        badge.textContent = 'Locked';
+    }
+}
+
+// --- 4. Navigation & View Switching ---
 const navButtons = document.querySelectorAll('.nav-btn');
 const views = document.querySelectorAll('.view-section');
 
@@ -212,7 +302,7 @@ function switchView(viewId) {
     if (targetBtn) targetBtn.click();
 }
 
-// --- 4. Lesson Video Modal & Post-Lesson Practice Trigger ---
+// --- 5. Lesson Video Modal & Post-Lesson Practice Trigger ---
 function openLessonModal(title, practiceTarget, category) {
     document.getElementById('modal-lesson-title').textContent = title;
     document.getElementById('video-demo-visual').textContent = `🤟 Signing: "${practiceTarget}"`;
@@ -221,12 +311,12 @@ function openLessonModal(title, practiceTarget, category) {
     const practiceBtn = document.getElementById('practice-after-lesson-btn');
     practiceBtn.onclick = () => {
         closeLessonModal();
-        // Increment progress slightly for completing video
-        currentUser.progress = Math.min(100, currentUser.progress + 10);
-        saveProgress();
-        updateUIWithUser();
+        if (currentUser.isAuthenticated) {
+            currentUser.progress = Math.min(100, currentUser.progress + 10);
+            saveProgress();
+            updateUIWithUser();
+        }
 
-        // Route directly to Camera Practice loaded with that lesson's sign
         practiceMode = category;
         switchView('practice-view');
         document.getElementById('practice-category-label').textContent =
@@ -239,34 +329,90 @@ function closeLessonModal() {
     document.getElementById('lesson-modal').classList.remove('active');
 }
 
-// --- 5. Low-Latency Webcam Management (5G / Unstable Wi-Fi Optimized) ---
+// --- 6. Low-Latency Webcam Management ---
 let activeStream = null;
+
+let isCameraActive = true;
 
 async function initWebcam(videoElementId, statusBadgeId) {
     const videoEl = document.getElementById(videoElementId);
     const badgeEl = document.getElementById(statusBadgeId);
     try {
-        badgeEl.textContent = "Connecting camera (Low-bandwidth mode)...";
-        // Lower resolution & frame rate prevents lag on unstable school Wi-Fi or 5G
+        badgeEl.textContent = "Connecting camera...";
         activeStream = await navigator.mediaDevices.getUserMedia({
             video: { width: { ideal: 480 }, height: { ideal: 360 }, frameRate: { ideal: 20 } },
             audio: false
         });
         videoEl.srcObject = activeStream;
+        isCameraActive = true;
+        updateCameraToggleButtonText();
         badgeEl.textContent = "Camera active. Position your hands in frame.";
     } catch (error) {
         badgeEl.textContent = "Camera unavailable — Simulation mode active.";
+        isCameraActive = false;
+        updateCameraToggleButtonText();
     }
 }
 
-function stopAllWebcams() {
-    if (activeStream) {
-        activeStream.getTracks().forEach(track => track.stop());
-        activeStream = null;
+// Toggle camera stream on/off dynamically
+function toggleCameraFeed() {
+    const activeVideoId = document.getElementById('practice-view').classList.contains('active') ? 'user-webcam' : 'quiz-webcam';
+    const activeStatusId = document.getElementById('practice-view').classList.contains('active') ? 'feedback-status' : 'quiz-cam-status';
+    const videoEl = document.getElementById(activeVideoId);
+    const badgeEl = document.getElementById(activeStatusId);
+
+    if (isCameraActive) {
+        // Turn camera off by stopping all active tracks
+        if (activeStream) {
+            activeStream.getTracks().forEach(track => track.stop());
+            activeStream = null;
+        }
+        videoEl.srcObject = null;
+        isCameraActive = false;
+        badgeEl.textContent = "Camera is turned off.";
+    } else {
+        // Turn camera back on
+        initWebcam(activeVideoId, activeStatusId);
+    }
+    updateCameraToggleButtonText();
+}
+
+function updateCameraToggleButtonText() {
+    const toggleBtn = document.getElementById('cam-toggle-btn');
+    if (toggleBtn) {
+        toggleBtn.textContent = isCameraActive ? "Turn Camera Off" : "Turn Camera On";
+        toggleBtn.className = isCameraActive ? "btn secondary" : "btn primary";
     }
 }
 
-// --- 6. Camera Practice (Alphabet First -> Full Sentences) ---
+let isQuizCameraActive = true;
+
+function toggleQuizCameraFeed() {
+    const videoEl = document.getElementById('quiz-webcam');
+    const badgeEl = document.getElementById('quiz-cam-status');
+    const toggleBtn = document.getElementById('quiz-cam-toggle-btn');
+
+    if (isQuizCameraActive) {
+        // Stop active stream tracks for the quiz camera
+        if (activeStream) {
+            activeStream.getTracks().forEach(track => track.stop());
+            activeStream = null;
+        }
+        videoEl.srcObject = null;
+        isQuizCameraActive = false;
+        toggleBtn.textContent = "Turn Camera On";
+        toggleBtn.className = "btn primary";
+        badgeEl.textContent = "Camera is turned off.";
+    } else {
+        // Restart the quiz webcam stream
+        initWebcam('quiz-webcam', 'quiz-cam-status');
+        isQuizCameraActive = true;
+        toggleBtn.textContent = "Turn Camera Off";
+        toggleBtn.className = "btn secondary";
+    }
+}
+
+// --- 7. Camera Practice ---
 let practiceMode = 'alphabet';
 let promptIndex = 0;
 
@@ -344,11 +490,17 @@ function simulateAIFeedback(feedbackStatus) {
         const el = document.getElementById('check-accuracy');
         el.className = "success";
         el.textContent = `✓ Accuracy score: ${score}%`;
-        feedbackStatus.textContent = `Great job! Accuracy: ${score}% — Progress saved!`;
 
-        currentUser.progress = Math.min(100, currentUser.progress + 5);
-        saveProgress();
-        updateUIWithUser();
+        if (currentUser.isAuthenticated) {
+            feedbackStatus.textContent = `Great job! Accuracy: ${score}% — Progress saved to Profile!`;
+            currentUser.progress = Math.min(100, currentUser.progress + 5);
+            currentUser.signsPracticed += 1;
+            saveProgress();
+            updateUIWithUser();
+        } else {
+            feedbackStatus.textContent = `Great job! Accuracy: ${score}% (Sign in to save progress)`;
+        }
+
         isPracticing = false;
         const recordBtn = document.getElementById('record-btn');
         recordBtn.textContent = "Check My Sign";
@@ -365,7 +517,7 @@ function resetChecklist() {
     document.getElementById('check-accuracy').textContent = "Accuracy score: --%";
 }
 
-// --- 7. Quizzes (Multiple Choice + Camera Hand-Motion) ---
+// --- 8. Quizzes (Multiple Choice + Camera Hand-Motion) ---
 let currentQuizMode = 'mc';
 let mcIndex = 0;
 let mcScore = 0;
@@ -436,10 +588,15 @@ function checkMCAnswer(selectedIndex, clickedBtn) {
     if (selectedIndex === q.correct) {
         clickedBtn.classList.add('correct');
         mcScore++;
-        feedback.textContent = '✓ Correct! Your knowledge is growing.';
-        currentUser.progress = Math.min(100, currentUser.progress + 5);
-        saveProgress();
-        updateUIWithUser();
+        if (currentUser.isAuthenticated) {
+            feedback.textContent = '✓ Correct! Progress saved to your Profile.';
+            currentUser.progress = Math.min(100, currentUser.progress + 5);
+            currentUser.quizzesPassed += 1;
+            saveProgress();
+            updateUIWithUser();
+        } else {
+            feedback.textContent = '✓ Correct! (Sign in to save quiz progress)';
+        }
     } else {
         clickedBtn.classList.add('wrong');
         buttons[q.correct].classList.add('correct');
@@ -455,7 +612,6 @@ function nextMCQuestion() {
     renderMCQuestion();
 }
 
-// Camera Hand-Motion Quiz Logic
 const motionChallenges = [
     'Sign the letter: "B" (Flat hand, fingers together, thumb tucked across palm)',
     'Sign the letter: "C" (Curve your fingers and thumb into a C shape)',
@@ -470,10 +626,15 @@ function verifyMotionQuiz() {
     setTimeout(() => {
         motionPassed++;
         document.getElementById('motion-quiz-score').textContent = `Challenges Passed: ${motionPassed}`;
-        status.textContent = '✓ Motion matched! +10% Progress saved.';
-        currentUser.progress = Math.min(100, currentUser.progress + 10);
-        saveProgress();
-        updateUIWithUser();
+        if (currentUser.isAuthenticated) {
+            status.textContent = '✓ Motion matched! +10% Progress saved.';
+            currentUser.progress = Math.min(100, currentUser.progress + 10);
+            currentUser.quizzesPassed += 1;
+            saveProgress();
+            updateUIWithUser();
+        } else {
+            status.textContent = '✓ Motion matched! (Sign in to save progress)';
+        }
     }, 1500);
 }
 
@@ -483,7 +644,7 @@ function nextMotionChallenge() {
     document.getElementById('quiz-cam-status').textContent = 'Ready for challenge!';
 }
 
-// --- 8. Network Monitoring for Unstable 5G / School Wi-Fi ---
+// --- 9. Network Monitoring ---
 window.addEventListener('online', updateNetworkStatus);
 window.addEventListener('offline', updateNetworkStatus);
 

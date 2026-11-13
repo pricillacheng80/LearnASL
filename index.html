@@ -15,7 +15,7 @@
         <div class="auth-card">
             <div class="auth-header">
                 <h2>Welcome to SignBridge</h2>
-                <p>Create an account or log in to save your ASL progress.</p>
+                <p>Sign in or create an account to unlock and save your ASL progress, streaks, and awards.</p>
             </div>
             
             <div class="auth-tabs">
@@ -25,22 +25,22 @@
 
             <form id="auth-form" onsubmit="handleAuthSubmit(event)">
                 <div class="form-group" id="name-field" style="display: none;">
-                    <label for="student-name">Student Name</label>
-                    <input type="text" id="student-name" placeholder="e.g., Alex Rivera">
+                    <label for="student-name">Choose a Username</label>
+                    <input type="text" id="student-name" placeholder="e.g., AlexRivera">
                 </div>
                 <div class="form-group">
-                    <label for="student-email">School or Personal Email</label>
+                    <label for="student-email">Active School or Personal Email</label>
                     <input type="email" id="student-email" required placeholder="student@school.edu">
                 </div>
                 <div class="form-group">
-                    <label for="student-password">Password</label>
-                    <input type="password" id="student-password" required placeholder="••••••••">
+                    <label for="student-password">Password (min 6 characters)</label>
+                    <input type="password" id="student-password" required minlength="6" placeholder="••••••••">
                 </div>
                 <button type="submit" class="btn primary full-width" id="auth-submit-btn">Log In</button>
             </form>
 
             <div class="auth-divider"><span>or</span></div>
-            <button type="button" class="btn secondary full-width" onclick="continueAsGuest()">Continue as Guest (Local Save)</button>
+            <button type="button" class="btn secondary full-width" onclick="continueAsGuest()">Continue as Guest (Progress Hidden)</button>
         </div>
     </div>
 
@@ -55,11 +55,12 @@
             <button class="nav-btn" data-target="lessons-view">Lessons</button>
             <button class="nav-btn" data-target="practice-view">Camera Practice</button>
             <button class="nav-btn" data-target="quiz-view">Quizzes</button>
+            <button class="nav-btn" data-target="profile-view">Profile</button>
         </nav>
         <div class="user-profile-badge">
-            <span id="user-streak">🔥 1 Day Streak</span>
-            <div class="avatar" id="user-avatar" title="Account Settings">G</div>
-            <button class="btn secondary" id="header-auth-btn" onclick="openAuthModal()" style="padding: 6px 12px; font-size: 0.85rem;">Sign In</button>
+            <span id="user-streak" style="display: none;">🔥 1 Day Streak</span>
+            <div class="avatar" id="user-avatar" title="View Profile" onclick="switchView('profile-view')">G</div>
+            <button class="btn secondary" id="header-auth-btn" onclick="openAuthModal()" style="padding: 6px 12px; font-size: 0.85rem;">Sign In / Up</button>
         </div>
     </header>
 
@@ -68,22 +69,34 @@
         <!-- Dashboard View -->
         <section id="dashboard-view" class="view-section active">
             <div class="welcome-banner">
-                <h2 id="welcome-heading">Welcome back, Student! 👋</h2>
+                <h2 id="welcome-heading">Welcome, Guest! 👋</h2>
                 <p>Start with the ASL Alphabet and build up to full conversations with your peers.</p>
             </div>
             
             <div class="dashboard-grid">
+                <!-- Progress Card: Locked until Signed In -->
                 <div class="card progress-card">
-                    <div>
+                    <div id="dashboard-locked-state">
                         <h3>Your Learning Path</h3>
-                        <div class="progress-bar-container">
-                            <div class="progress-bar" id="overall-progress-bar" style="width: 15%;"></div>
+                        <p class="helper-text" style="margin: 1rem 0;">🔒 <strong>Progress tracking is locked in Guest mode.</strong> Sign in or create an account to view your completion percentage, save session progress, and earn awards.</p>
+                        <div class="card-actions">
+                            <button class="btn primary" onclick="openAuthModal()">Sign In to View Progress</button>
+                            <button class="btn secondary" onclick="switchView('lessons-view')">Browse Lessons</button>
                         </div>
-                        <p id="progress-summary-text">15% Complete • Current Unit: <strong>Unit 1: ASL Alphabet (A–Z)</strong></p>
                     </div>
-                    <div class="card-actions">
-                        <button class="btn primary" onclick="switchView('lessons-view')">Start Alphabet Lesson</button>
-                        <button class="btn secondary" onclick="switchView('quiz-view')">Take a Quiz</button>
+
+                    <div id="dashboard-unlocked-state" style="display: none; height: 100%; flex-direction: column; justify-content: space-between; gap: 1.25rem;">
+                        <div>
+                            <h3>Your Learning Path</h3>
+                            <div class="progress-bar-container">
+                                <div class="progress-bar" id="overall-progress-bar" style="width: 0%;"></div>
+                            </div>
+                            <p id="progress-summary-text">0% Complete • Current Unit: <strong>Unit 1: ASL Alphabet (A–Z)</strong></p>
+                        </div>
+                        <div class="card-actions">
+                            <button class="btn primary" onclick="switchView('lessons-view')">Start Alphabet Lesson</button>
+                            <button class="btn secondary" onclick="switchView('profile-view')">View Awards & Profile</button>
+                        </div>
                     </div>
                 </div>
 
@@ -98,7 +111,7 @@
             </div>
         </section>
 
-        <!-- Video Lessons View (Starting with Alphabets -> Sentences) -->
+        <!-- Video Lessons View -->
         <section id="lessons-view" class="view-section">
             <div class="section-header">
                 <h2>Step-by-Step ASL Curriculum</h2>
@@ -154,7 +167,7 @@
             </div>
         </section>
 
-        <!-- Lesson Player & Mandatory Post-Lesson Practice Modal -->
+        <!-- Lesson Player & Post-Lesson Practice Modal -->
         <div id="lesson-modal" class="modal-overlay">
             <div class="lesson-modal-card">
                 <div class="modal-top-bar">
@@ -193,6 +206,11 @@
                             <div class="feedback-badge" id="feedback-status">Waiting for camera...</div>
                         </div>
                     </div>
+                    <!-- Add this button -->
+                    <div class="card-actions" style="margin-top: 10px;">
+                        <button class="btn secondary" id="cam-toggle-btn" onclick="toggleCameraFeed()">Turn Camera Off</button>
+                    </div>
+
                     <div class="feedback-sidebar">
                         <div>
                             <h4>Real-Time Sign Feedback</h4>
@@ -209,7 +227,7 @@
             </div>
         </section>
 
-        <!-- Quizzes View (Multiple Choice + Hand Motion Camera Quiz) -->
+        <!-- Quizzes View -->
         <section id="quiz-view" class="view-section">
             <div class="section-header">
                 <h2>Knowledge & Motion Quizzes</h2>
@@ -221,7 +239,6 @@
                 <button class="btn secondary" id="btn-motion-quiz" onclick="setQuizMode('motion')">2. Camera Hand-Motion Quiz</button>
             </div>
 
-            <!-- Multiple Choice Quiz Container -->
             <div id="mc-quiz-container" class="card quiz-box">
                 <div class="quiz-header">
                     <span id="mc-question-counter">Question 1 of 3</span>
@@ -229,14 +246,11 @@
                 </div>
                 <div class="quiz-visual-prompt" id="mc-visual-cue">✊ (Closed fist, thumb on the side)</div>
                 <h3 id="mc-question-text">Which ASL letter is formed by a closed fist with the thumb resting on the side of the index finger?</h3>
-                <div class="mc-options-grid" id="mc-options">
-                    <!-- Populated via JS -->
-                </div>
+                <div class="mc-options-grid" id="mc-options"></div>
                 <div id="mc-feedback-banner" class="quiz-feedback" style="display: none;"></div>
                 <button class="btn primary" id="mc-next-btn" style="display: none; margin-top: 1rem;" onclick="nextMCQuestion()">Next Question</button>
             </div>
 
-            <!-- Hand Motion Camera Quiz Container -->
             <div id="motion-quiz-container" class="card quiz-box" style="display: none;">
                 <div class="quiz-header">
                     <span>Live Motion Challenge</span>
@@ -250,15 +264,87 @@
                 <div class="card-actions" style="margin-top: 1rem;">
                     <button class="btn primary" onclick="verifyMotionQuiz()">Verify Hand Motion</button>
                     <button class="btn secondary" onclick="nextMotionChallenge()">Skip / Next Challenge</button>
+                    
+                    <!-- 👉 Add the Quiz Camera Toggle Button Here -->
+                    <button class="btn secondary" id="quiz-cam-toggle-btn" onclick="toggleQuizCameraFeed()">Turn Camera Off</button>
+                </div>
+            </div>
+        </section>
+
+        <!-- Student Profile View (Session Progress, Awards & Day Streaks) -->
+        <section id="profile-view" class="view-section">
+            <!-- Locked View when user is NOT signed in -->
+            <div id="profile-locked-screen" class="card locked-profile-box">
+                <div class="lock-icon">🔒</div>
+                <h2>Sign In to Access Your Profile</h2>
+                <p>Your session progress, earned awards, and daily learning streaks are tied to your student account.</p>
+                <button class="btn primary" onclick="openAuthModal()">Sign In or Create an Account</button>
+            </div>
+
+            <!-- Unlocked Profile Dashboard when Signed In -->
+            <div id="profile-unlocked-screen" style="display: none;">
+                <div class="profile-header-card card">
+                    <div class="profile-identity">
+                        <div class="avatar large" id="profile-avatar-large">U</div>
+                        <div>
+                            <h2 id="profile-username-display">Student Name</h2>
+                            <p id="profile-email-display" class="helper-text">student@school.edu</p>
+                        </div>
+                    </div>
+                    <button class="btn secondary" onclick="logoutUser()">Sign Out</button>
+                </div>
+
+                <div class="stats-grid">
+                    <div class="card stat-card">
+                        <span class="stat-label">Day Streak</span>
+                        <div class="stat-value" id="profile-streak-val">🔥 1 Day</div>
+                        <p class="helper-text">Practice daily to keep your streak alive!</p>
+                    </div>
+                    <div class="card stat-card">
+                        <span class="stat-label">Session Progress</span>
+                        <div class="stat-value" id="profile-session-val">0 Signs Practiced</div>
+                        <p class="helper-text" id="profile-unit-status">Current Unit: Alphabet (A–Z)</p>
+                    </div>
+                    <div class="card stat-card">
+                        <span class="stat-label">Overall Mastery</span>
+                        <div class="stat-value" id="profile-mastery-val">0%</div>
+                        <div class="progress-bar-container" style="margin: 0.5rem 0 0 0;">
+                            <div class="progress-bar" id="profile-progress-bar" style="width: 0%;"></div>
+                        </div>
+                    </div>
+                </div>
+
+                <h3 class="unit-title" style="margin-top: 2rem;">Earned Awards & Milestones</h3>
+                <div class="awards-grid">
+                    <div class="card award-card" id="award-first-step">
+                        <div class="award-icon">🌱</div>
+                        <h4>First Sign</h4>
+                        <p>Complete your first lesson or camera check.</p>
+                        <span class="award-status locked" id="status-award-1">Locked</span>
+                    </div>
+                    <div class="card award-card" id="award-alphabet-ace">
+                        <div class="award-icon">🔤</div>
+                        <h4>Alphabet Explorer</h4>
+                        <p>Reach 25% overall ASL mastery.</p>
+                        <span class="award-status locked" id="status-award-2">Locked</span>
+                    </div>
+                    <div class="card award-card" id="award-sentence-builder">
+                        <div class="award-icon">💬</div>
+                        <h4>Peer Communicator</h4>
+                        <p>Reach 50% mastery and unlock full sentences.</p>
+                        <span class="award-status locked" id="status-award-3">Locked</span>
+                    </div>
+                    <div class="card award-card" id="award-quiz-master">
+                        <div class="award-icon">🏆</div>
+                        <h4>Quiz Champion</h4>
+                        <p>Pass 3 quiz questions or motion challenges.</p>
+                        <span class="award-status locked" id="status-award-4">Locked</span>
+                    </div>
                 </div>
             </div>
         </section>
     </main>
 
-     <!-- Supabase JavaScript Client Library CDN -->
-    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-
-    <!-- Script File Linking -->
     <script src="script.js"></script>
 </body>
 </html>

@@ -26,7 +26,7 @@ body {
     min-height: 100vh;
 }
 
-/* Modal Overlays (Auth & Lesson Player) */
+/* Modal Overlays */
 .modal-overlay {
     position: fixed;
     inset: 0;
@@ -118,7 +118,6 @@ body {
 .auth-divider {
     text-align: center;
     margin: 1rem 0;
-    position: relative;
 }
 
 .auth-divider span {
@@ -208,6 +207,13 @@ body {
     cursor: pointer;
 }
 
+.avatar.large {
+    width: 56px;
+    height: 56px;
+    font-size: 1.35rem;
+    cursor: default;
+}
+
 /* Main Layout Views */
 .main-content {
     flex: 1;
@@ -225,7 +231,7 @@ body {
     display: block;
 }
 
-/* Dashboard Styles */
+/* Dashboard & Cards */
 .welcome-banner {
     margin-bottom: 2rem;
 }
@@ -248,7 +254,6 @@ body {
     display: flex;
     flex-direction: column;
     justify-content: space-between;
-    gap: 1.25rem;
 }
 
 .card-actions {
@@ -300,6 +305,112 @@ body {
     font-size: 0.85rem;
     color: var(--text-muted);
     line-height: 1.4;
+}
+
+/* Profile Page Styles */
+.locked-profile-box {
+    max-width: 480px;
+    margin: 2rem auto;
+    text-align: center;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 1rem;
+    padding: 2.5rem 2rem;
+}
+
+.lock-icon {
+    font-size: 2.5rem;
+}
+
+.profile-header-card {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 1rem;
+    margin-bottom: 1.5rem;
+}
+
+.profile-identity {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+}
+
+.stats-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+    gap: 1.25rem;
+}
+
+.stat-card {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.stat-label {
+    font-size: 0.8rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--text-muted);
+}
+
+.stat-value {
+    font-size: 1.65rem;
+    font-weight: 700;
+    color: var(--text-main);
+}
+
+.awards-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 1.25rem;
+    margin-top: 1rem;
+}
+
+.award-card {
+    text-align: center;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.5rem;
+    transition: transform 0.2s;
+}
+
+.award-card.unlocked {
+    border-color: var(--success);
+    background: #F0FDF4;
+}
+
+.award-icon {
+    font-size: 2.25rem;
+    margin-bottom: 0.25rem;
+}
+
+.award-card p {
+    font-size: 0.85rem;
+    color: var(--text-muted);
+}
+
+.award-status {
+    margin-top: 0.5rem;
+    font-size: 0.75rem;
+    font-weight: 700;
+    padding: 3px 10px;
+    border-radius: 20px;
+}
+
+.award-status.locked {
+    background: #F1F5F9;
+    color: var(--text-muted);
+}
+
+.award-status.unlocked {
+    background: var(--success);
+    color: white;
 }
 
 /* Video Lessons Styles */
