@@ -29,18 +29,22 @@
                     <input type="text" id="student-name" placeholder="e.g., AlexRivera">
                 </div>
                 <div class="form-group">
-                    <label for="student-email">Active School or Personal Email</label>
-                    <input type="email" id="student-email" required placeholder="student@school.edu">
+                    <label for="student-email">Email</label>
+                    <input type="email" id="student-email" required placeholder="Email">
                 </div>
                 <div class="form-group">
                     <label for="student-password">Password (min 6 characters)</label>
-                    <input type="password" id="student-password" required minlength="6" placeholder="••••••••">
+                    <input type="password" id="student-password" required minlength="6" placeholder="Password">
                 </div>
                 <button type="submit" class="btn primary full-width" id="auth-submit-btn">Log In</button>
+                <!-- 👉 Add Forgot Password Link Here -->
+                <div class="auth-link-container" style="text-align: right; margin-bottom: 1rem;">
+                    <a href="#" onclick="handleForgotPassword(event)" style="font-size: 0.8rem; color: var(--primary); text-decoration: none;">Forgot password?</a>
+                </div>
             </form>
 
             <div class="auth-divider"><span>or</span></div>
-            <button type="button" class="btn secondary full-width" onclick="continueAsGuest()">Continue as Guest (Progress Hidden)</button>
+            <button type="button" class="btn secondary full-width" onclick="continueAsGuest()">Continue as Guest</button>
         </div>
     </div>
 

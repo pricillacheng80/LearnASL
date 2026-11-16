@@ -12,6 +12,37 @@ try {
     console.warn("Supabase initialization skipped. Running in local fallback mode:", err);
 }
 
+// --- Forgot Password Handling ---
+async function handleForgotPassword(event) {
+    event.preventDefault();
+    const emailInput = document.getElementById('student-email').value.trim();
+
+    if (!emailInput) {
+        alert("Please enter your email address in the email field above first, then click 'Forgot password?'.");
+        return;
+    }
+
+    if (!supabaseClient) {
+        alert("Supabase client is not initialized.");
+        return;
+    }
+
+    try {
+        // Request Supabase to send a password recovery email
+        const { data, error } = await supabaseClient.auth.resetPasswordForEmail(emailInput, {
+            redirectTo: window.location.origin + window.location.pathname // Redirects back to your app after clicking reset
+        });
+
+        if (error) {
+            throw error;
+        }
+
+        alert("Password reset instructions have been sent to " + emailInput + ". Please check your inbox!");
+    } catch (err) {
+        alert("Error sending password reset email: " + err.message);
+    }
+}
+
 // --- 2. User State (Strictly Authenticated vs Guest) ---
 const defaultGuestUser = {
     isAuthenticated: false,
