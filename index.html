@@ -11,8 +11,9 @@
 </head>
 <body>
     <!-- Authentication Modal (Login / Sign Up) -->
-    <div id="auth-modal" class="modal-overlay active">
+    <div id="auth-modal" class="modal-overlay active" onclick="handleAuthOverlayClick(event)">
         <div class="auth-card">
+            <button type="button" class="close-btn auth-close-btn" onclick="continueAsGuest()" aria-label="Close and continue as guest">✕</button>
             <div class="auth-header">
                 <h2>Welcome to SignBridge</h2>
                 <p>Sign in or create an account to unlock and save your ASL progress, streaks, and awards.</p>
@@ -33,11 +34,13 @@
                     <input type="email" id="student-email" required placeholder="Email">
                 </div>
                 <div class="form-group">
-                    <label for="student-password">Password (min 6 characters)</label>
-                    <input type="password" id="student-password" required minlength="6" placeholder="Password">
+                    <label for="student-password">Password</label>
+                    <input type="password" id="student-password" required minlength="9" placeholder="Password">
+                    <small id="password-rules-hint" class="password-hint" style="display: none;">
+                        Must be at least 9 characters, include 1 capital letter (A–Z), and 1 special character (!@#$%^&*).
+                    </small>
                 </div>
-                <button type="submit" class="btn primary full-width" id="auth-submit-btn">Log In</button>
-                <!-- 👉 Add Forgot Password Link Here -->
+                <button type="submit" class="btn primary full-width" id="auth-submit-btn">Login</button>                <!-- 👉 Add Forgot Password Link Here -->
                 <div class="auth-link-container" style="text-align: right; margin-bottom: 1rem;">
                     <a href="#" onclick="handleForgotPassword(event)" style="font-size: 0.8rem; color: var(--primary); text-decoration: none;">Forgot password?</a>
                 </div>
@@ -52,7 +55,6 @@
     <header class="app-header">
         <div class="logo-container">
             <h1>SignBridge</h1>
-            <span class="badge">Student Edition</span>
         </div>
         <nav class="nav-menu">
             <button class="nav-btn active" data-target="dashboard-view">Dashboard</button>
@@ -64,7 +66,7 @@
         <div class="user-profile-badge">
             <span id="user-streak" style="display: none;">🔥 1 Day Streak</span>
             <div class="avatar" id="user-avatar" title="View Profile" onclick="switchView('profile-view')">G</div>
-            <button class="btn secondary" id="header-auth-btn" onclick="openAuthModal()" style="padding: 6px 12px; font-size: 0.85rem;">Sign In / Up</button>
+            <button class="btn secondary" id="header-auth-btn" onclick="openAuthModal()" style="padding: 6px 12px; font-size: 0.85rem;">Sign In</button>
         </div>
     </header>
 
@@ -104,7 +106,7 @@
                     </div>
                 </div>
 
-                <div class="card quick-tips">
+                <div class="card quick-tips" id="admin-sync-card" style="display: none;">
                     <h3>Connection & Sync Status</h3>
                     <div id="network-status" class="status-indicator online">
                         <span class="dot"></span> 

@@ -1,6 +1,7 @@
 // --- 1. Supabase Initialization (Supports sb_publishable_ and legacy eyJ keys) ---
 const SUPABASE_URL = 'https://mecjgmcuwtqzkrmwecfq.supabase.co';
 const SUPABASE_ANON_KEY = 'sb_publishable_RNE3_cZ8XbDF_YJaFIA05w_hBcK2F2P';
+const ADMIN_EMAILS = ['pricilla.cheng123@gmail.com']; // Add your admin email(s) here
 
 let supabaseClient = null;
 try {
@@ -28,9 +29,8 @@ async function handleForgotPassword(event) {
     }
 
     try {
-        // Request Supabase to send a password recovery email
-        const { data, error } = await supabaseClient.auth.resetPasswordForEmail(emailInput, {
-            redirectTo: window.location.origin + window.location.pathname // Redirects back to your app after clicking reset
+        const { error } = await supabaseClient.auth.resetPasswordForEmail(emailInput, {
+            redirectTo: window.location.origin + window.location.pathname
         });
 
         if (error) {
@@ -70,7 +70,7 @@ window.addEventListener('DOMContentLoaded', () => {
     updateNetworkStatus();
 });
 
-// --- 3. Smart Authentication (Email Check, Sign Up Confirmation & Log In) ---
+// --- 3. Smart Authentication & Password Validation ---
 let authMode = 'login';
 
 function openAuthModal() {
@@ -82,7 +82,30 @@ function switchAuthTab(mode) {
     document.getElementById('tab-login').classList.toggle('active', mode === 'login');
     document.getElementById('tab-signup').classList.toggle('active', mode === 'signup');
     document.getElementById('name-field').style.display = mode === 'signup' ? 'block' : 'none';
-    document.getElementById('auth-submit-btn').textContent = mode === 'signup' ? 'Create Student Account' : 'Log In';
+    
+    const hint = document.getElementById('password-rules-hint');
+    if (hint) {
+        hint.style.display = mode === 'signup' ? 'block' : 'none';
+    }
+
+    document.getElementById('auth-submit-btn').textContent = mode === 'signup' ? 'Sign Up' : 'Login';
+}
+
+function validateStrongPassword(password) {
+    const hasMinLength = password.length >= 9;
+    const hasUpperCase = /[A-Z]/.test(password);
+    const hasSpecialChar = /[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?`~]/.test(password);
+
+    if (!hasMinLength) {
+        return "Password must be at least 9 characters long.";
+    }
+    if (!hasUpperCase) {
+        return "Password must include at least one capital letter (A–Z).";
+    }
+    if (!hasSpecialChar) {
+        return "Password must include at least one special character (e.g., !, @, #, $, %).";
+    }
+    return null;
 }
 
 async function handleAuthSubmit(event) {
@@ -98,6 +121,13 @@ async function handleAuthSubmit(event) {
 
     try {
         if (authMode === 'signup') {
+            // Enforce strong password rules before creating the account
+            const passwordError = validateStrongPassword(password);
+            if (passwordError) {
+                alert(passwordError);
+                return;
+            }
+
             // Sign Up Flow: Verifies active email & checks if already registered
             const { data, error } = await supabaseClient.auth.signUp({
                 email,
@@ -132,7 +162,6 @@ async function handleAuthSubmit(event) {
             const { data, error } = await supabaseClient.auth.signInWithPassword({ email, password });
 
             if (error) {
-                // If login fails because account does not exist or wrong credentials, suggest Sign Up
                 alert("Account not found or invalid credentials. If you haven't registered yet, please switch to 'Sign Up' to create an account.");
                 return;
             }
@@ -146,7 +175,6 @@ async function handleAuthSubmit(event) {
 }
 
 async function completeUserLogin(email, username) {
-    // Load existing progress for this specific email if stored locally or in Supabase
     const userStorageKey = `signbridge_progress_${email}`;
     const storedAccountData = localStorage.getItem(userStorageKey);
 
@@ -166,7 +194,6 @@ async function completeUserLogin(email, username) {
         };
     }
 
-    // Attempt to sync progress from Supabase student_progress table
     if (supabaseClient) {
         try {
             const { data } = await supabaseClient
@@ -204,7 +231,6 @@ async function logoutUser() {
         localStorage.removeItem('signbridge_authenticated_user');
         currentUser = { ...defaultGuestUser };
         
-        // Return cleanly to the home dashboard and open the Sign In modal
         switchView('dashboard-view');
         updateUIWithUser();
         openAuthModal();
@@ -212,7 +238,6 @@ async function logoutUser() {
 }
 
 async function saveProgress() {
-    // Only persist progress if user is logged into an account
     if (!currentUser.isAuthenticated || !currentUser.email) return;
 
     localStorage.setItem('signbridge_authenticated_user', JSON.stringify(currentUser));
@@ -238,14 +263,20 @@ function updateUIWithUser() {
     const dashUnlocked = document.getElementById('dashboard-unlocked-state');
     const profileLocked = document.getElementById('profile-locked-screen');
     const profileUnlocked = document.getElementById('profile-unlocked-screen');
+    const adminSyncCard = document.getElementById('admin-sync-card');
+
+    // Check if the currently logged-in user is an admin
+    const isAdmin = currentUser.isAuthenticated && ADMIN_EMAILS.includes(currentUser.email.toLowerCase());
+    if (adminSyncCard) {
+        adminSyncCard.style.display = isAdmin ? 'block' : 'none';
+    }
 
     if (!currentUser.isAuthenticated) {
-        // Guest / Logged-Out UI State (Progress strictly hidden)
         document.getElementById('welcome-heading').textContent = 'Welcome, Guest! 👋';
         document.getElementById('user-avatar').textContent = 'G';
         streakBadge.style.display = 'none';
 
-        authBtn.textContent = 'Sign In / Up';
+        authBtn.textContent = 'Sign In';
         authBtn.onclick = openAuthModal;
 
         dashLocked.style.display = 'block';
@@ -255,7 +286,6 @@ function updateUIWithUser() {
         return;
     }
 
-    // Authenticated Student UI State
     document.getElementById('welcome-heading').textContent = `Welcome back, ${currentUser.name}! 👋`;
     document.getElementById('user-avatar').textContent = currentUser.name.charAt(0).toUpperCase();
     streakBadge.style.display = 'inline';
@@ -269,12 +299,10 @@ function updateUIWithUser() {
     profileLocked.style.display = 'none';
     profileUnlocked.style.display = 'block';
 
-    // Update Dashboard Progress Bar
     document.getElementById('overall-progress-bar').style.width = `${currentUser.progress}%`;
     const unitLabel = currentUser.progress < 50 ? 'Unit 1: ASL Alphabet (A–Z)' : 'Unit 2: Full School Sentences';
     document.getElementById('progress-summary-text').innerHTML = `${currentUser.progress}% Complete • Current Unit: <strong>${unitLabel}</strong>`;
 
-    // Update Profile Page Metrics
     document.getElementById('profile-avatar-large').textContent = currentUser.name.charAt(0).toUpperCase();
     document.getElementById('profile-username-display').textContent = currentUser.name;
     document.getElementById('profile-email-display').textContent = currentUser.email;
@@ -284,7 +312,6 @@ function updateUIWithUser() {
     document.getElementById('profile-mastery-val').textContent = `${currentUser.progress}%`;
     document.getElementById('profile-progress-bar').style.width = `${currentUser.progress}%`;
 
-    // Update Earned Awards
     toggleAward('award-first-step', 'status-award-1', currentUser.signsPracticed >= 1 || currentUser.progress > 10);
     toggleAward('award-alphabet-ace', 'status-award-2', currentUser.progress >= 25);
     toggleAward('award-sentence-builder', 'status-award-3', currentUser.progress >= 50);
@@ -362,8 +389,19 @@ function closeLessonModal() {
 
 // --- 6. Low-Latency Webcam Management ---
 let activeStream = null;
-
 let isCameraActive = true;
+let isQuizCameraActive = true;
+
+function stopAllWebcams() {
+    if (activeStream) {
+        activeStream.getTracks().forEach(track => track.stop());
+        activeStream = null;
+    }
+    const practiceVid = document.getElementById('user-webcam');
+    const quizVid = document.getElementById('quiz-webcam');
+    if (practiceVid) practiceVid.srcObject = null;
+    if (quizVid) quizVid.srcObject = null;
+}
 
 async function initWebcam(videoElementId, statusBadgeId) {
     const videoEl = document.getElementById(videoElementId);
@@ -376,24 +414,22 @@ async function initWebcam(videoElementId, statusBadgeId) {
         });
         videoEl.srcObject = activeStream;
         isCameraActive = true;
+        isQuizCameraActive = true;
         updateCameraToggleButtonText();
         badgeEl.textContent = "Camera active. Position your hands in frame.";
     } catch (error) {
         badgeEl.textContent = "Camera unavailable — Simulation mode active.";
         isCameraActive = false;
+        isQuizCameraActive = false;
         updateCameraToggleButtonText();
     }
 }
 
-// Toggle camera stream on/off dynamically
 function toggleCameraFeed() {
-    const activeVideoId = document.getElementById('practice-view').classList.contains('active') ? 'user-webcam' : 'quiz-webcam';
-    const activeStatusId = document.getElementById('practice-view').classList.contains('active') ? 'feedback-status' : 'quiz-cam-status';
-    const videoEl = document.getElementById(activeVideoId);
-    const badgeEl = document.getElementById(activeStatusId);
+    const videoEl = document.getElementById('user-webcam');
+    const badgeEl = document.getElementById('feedback-status');
 
     if (isCameraActive) {
-        // Turn camera off by stopping all active tracks
         if (activeStream) {
             activeStream.getTracks().forEach(track => track.stop());
             activeStream = null;
@@ -402,8 +438,7 @@ function toggleCameraFeed() {
         isCameraActive = false;
         badgeEl.textContent = "Camera is turned off.";
     } else {
-        // Turn camera back on
-        initWebcam(activeVideoId, activeStatusId);
+        initWebcam('user-webcam', 'feedback-status');
     }
     updateCameraToggleButtonText();
 }
@@ -416,15 +451,12 @@ function updateCameraToggleButtonText() {
     }
 }
 
-let isQuizCameraActive = true;
-
 function toggleQuizCameraFeed() {
     const videoEl = document.getElementById('quiz-webcam');
     const badgeEl = document.getElementById('quiz-cam-status');
     const toggleBtn = document.getElementById('quiz-cam-toggle-btn');
 
     if (isQuizCameraActive) {
-        // Stop active stream tracks for the quiz camera
         if (activeStream) {
             activeStream.getTracks().forEach(track => track.stop());
             activeStream = null;
@@ -435,7 +467,6 @@ function toggleQuizCameraFeed() {
         toggleBtn.className = "btn primary";
         badgeEl.textContent = "Camera is turned off.";
     } else {
-        // Restart the quiz webcam stream
         initWebcam('quiz-webcam', 'quiz-cam-status');
         isQuizCameraActive = true;
         toggleBtn.textContent = "Turn Camera Off";
