@@ -13,7 +13,7 @@
     <!-- Authentication Modal (Login / Sign Up) -->
     <div id="auth-modal" class="modal-overlay active" onclick="handleAuthOverlayClick(event)">
         <div class="auth-card">
-            <button type="button" class="close-btn auth-close-btn" onclick="continueAsGuest()" aria-label="Close and continue as guest">✕</button>
+            <button type="button" class="close-btn auth-close-btn" onclick="closeAuthModalAsGuest()" aria-label="Close and continue as guest">✕</button>
             <div class="auth-header">
                 <h2>Welcome to SignBridge</h2>
                 <p>Sign in or create an account to unlock and save your ASL progress, streaks, and awards.</p>
@@ -40,7 +40,7 @@
                         Must be at least 9 characters, include 1 capital letter (A–Z), and 1 special character (!@#$%^&*).
                     </small>
                 </div>
-                <button type="submit" class="btn primary full-width" id="auth-submit-btn">Login</button>                <!-- 👉 Add Forgot Password Link Here -->
+                <button type="submit" class="btn primary full-width" id="auth-submit-btn">Login</button>
                 <div class="auth-link-container" style="text-align: right; margin-bottom: 1rem;">
                     <a href="#" onclick="handleForgotPassword(event)" style="font-size: 0.8rem; color: var(--primary); text-decoration: none;">Forgot password?</a>
                 </div>
@@ -61,10 +61,8 @@
             <button class="nav-btn" data-target="lessons-view">Lessons</button>
             <button class="nav-btn" data-target="practice-view">Camera Practice</button>
             <button class="nav-btn" data-target="quiz-view">Quizzes</button>
-            <button class="nav-btn" data-target="profile-view">Profile</button>
         </nav>
         <div class="user-profile-badge">
-            <span id="user-streak" style="display: none;">🔥 1 Day Streak</span>
             <div class="avatar" id="user-avatar" title="View Profile" onclick="switchView('profile-view')">G</div>
             <button class="btn secondary" id="header-auth-btn" onclick="openAuthModal()" style="padding: 6px 12px; font-size: 0.85rem;">Sign In</button>
         </div>
@@ -212,7 +210,6 @@
                             <div class="feedback-badge" id="feedback-status">Waiting for camera...</div>
                         </div>
                     </div>
-                    <!-- Add this button -->
                     <div class="card-actions" style="margin-top: 10px;">
                         <button class="btn secondary" id="cam-toggle-btn" onclick="toggleCameraFeed()">Turn Camera Off</button>
                     </div>
@@ -270,8 +267,6 @@
                 <div class="card-actions" style="margin-top: 1rem;">
                     <button class="btn primary" onclick="verifyMotionQuiz()">Verify Hand Motion</button>
                     <button class="btn secondary" onclick="nextMotionChallenge()">Skip / Next Challenge</button>
-                    
-                    <!-- 👉 Add the Quiz Camera Toggle Button Here -->
                     <button class="btn secondary" id="quiz-cam-toggle-btn" onclick="toggleQuizCameraFeed()">Turn Camera Off</button>
                 </div>
             </div>
@@ -335,7 +330,7 @@
                         <span class="award-status locked" id="status-award-2">Locked</span>
                     </div>
                     <div class="card award-card" id="award-sentence-builder">
-                        <div class="award-icon">💬</div>
+                        <div class="avatar-icon">💬</div>
                         <h4>Peer Communicator</h4>
                         <p>Reach 50% mastery and unlock full sentences.</p>
                         <span class="award-status locked" id="status-award-3">Locked</span>

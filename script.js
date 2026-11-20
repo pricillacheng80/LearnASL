@@ -43,18 +43,46 @@ async function handleForgotPassword(event) {
     }
 }
 
-// --- 2. User State (Strictly Authenticated vs Guest) ---
+// --- 2. User State & Daily Streak Logic ---
 const defaultGuestUser = {
     isAuthenticated: false,
     name: 'Guest',
     email: '',
     progress: 0,
     streak: 1,
+    lastLoginDate: null,
     signsPracticed: 0,
     quizzesPassed: 0
 };
 
 let currentUser = { ...defaultGuestUser };
+
+function evaluateDailyStreak() {
+    if (!currentUser.isAuthenticated) return;
+
+    const todayStr = new Date().toDateString();
+    const lastLogin = currentUser.lastLoginDate;
+
+    if (!lastLogin) {
+        currentUser.streak = 1;
+        currentUser.lastLoginDate = todayStr;
+    } else if (lastLogin !== todayStr) {
+        const lastDate = new Date(lastLogin);
+        const currentDate = new Date(todayStr);
+        const diffTime = currentDate - lastDate;
+        const diffDays = Math.round(diffTime / (1000 * 60 * 60 * 24));
+
+        if (diffDays === 1) {
+            // Consecutive day login — increment streak
+            currentUser.streak = (currentUser.streak || 1) + 1;
+        } else if (diffDays > 1) {
+            // Missed one or more days — reset streak back to 1
+            currentUser.streak = 1;
+        }
+        currentUser.lastLoginDate = todayStr;
+    }
+    saveProgress();
+}
 
 window.addEventListener('DOMContentLoaded', () => {
     const saved = localStorage.getItem('signbridge_authenticated_user');
@@ -62,6 +90,7 @@ window.addEventListener('DOMContentLoaded', () => {
         const parsed = JSON.parse(saved);
         if (parsed && parsed.isAuthenticated) {
             currentUser = parsed;
+            evaluateDailyStreak();
             document.getElementById('auth-modal').classList.remove('active');
         }
     }
@@ -76,6 +105,27 @@ let authMode = 'login';
 function openAuthModal() {
     document.getElementById('auth-modal').classList.add('active');
 }
+
+function closeAuthModalAsGuest() {
+    if (currentUser.isAuthenticated) {
+        document.getElementById('auth-modal').classList.remove('active');
+    } else {
+        continueAsGuest();
+    }
+}
+
+function handleAuthOverlayClick(event) {
+    if (event.target.id === 'auth-modal') {
+        closeAuthModalAsGuest();
+    }
+}
+
+document.addEventListener('keydown', (event) => {
+    const authModal = document.getElementById('auth-modal');
+    if (event.key === 'Escape' && authModal && authModal.classList.contains('active')) {
+        closeAuthModalAsGuest();
+    }
+});
 
 function switchAuthTab(mode) {
     authMode = mode;
@@ -121,14 +171,12 @@ async function handleAuthSubmit(event) {
 
     try {
         if (authMode === 'signup') {
-            // Enforce strong password rules before creating the account
             const passwordError = validateStrongPassword(password);
             if (passwordError) {
                 alert(passwordError);
                 return;
             }
 
-            // Sign Up Flow: Verifies active email & checks if already registered
             const { data, error } = await supabaseClient.auth.signUp({
                 email,
                 password,
@@ -143,7 +191,6 @@ async function handleAuthSubmit(event) {
                 return;
             }
 
-            // Supabase returns an empty identities array if the email already exists in the database
             const emailExists = data.user && data.user.identities && data.user.identities.length === 0;
             if (emailExists) {
                 alert("This email already exists in our database! Please log in using the Log In tab.");
@@ -158,7 +205,6 @@ async function handleAuthSubmit(event) {
                 switchAuthTab('login');
             }
         } else {
-            // Log In Flow
             const { data, error } = await supabaseClient.auth.signInWithPassword({ email, password });
 
             if (error) {
@@ -189,6 +235,7 @@ async function completeUserLogin(email, username) {
             email: email,
             progress: 10,
             streak: 1,
+            lastLoginDate: null,
             signsPracticed: 0,
             quizzesPassed: 0
         };
@@ -211,6 +258,7 @@ async function completeUserLogin(email, username) {
         }
     }
 
+    evaluateDailyStreak();
     saveProgress();
     document.getElementById('auth-modal').classList.remove('active');
     updateUIWithUser();
@@ -258,14 +306,12 @@ async function saveProgress() {
 
 function updateUIWithUser() {
     const authBtn = document.getElementById('header-auth-btn');
-    const streakBadge = document.getElementById('user-streak');
     const dashLocked = document.getElementById('dashboard-locked-state');
     const dashUnlocked = document.getElementById('dashboard-unlocked-state');
     const profileLocked = document.getElementById('profile-locked-screen');
     const profileUnlocked = document.getElementById('profile-unlocked-screen');
     const adminSyncCard = document.getElementById('admin-sync-card');
 
-    // Check if the currently logged-in user is an admin
     const isAdmin = currentUser.isAuthenticated && ADMIN_EMAILS.includes(currentUser.email.toLowerCase());
     if (adminSyncCard) {
         adminSyncCard.style.display = isAdmin ? 'block' : 'none';
@@ -274,7 +320,6 @@ function updateUIWithUser() {
     if (!currentUser.isAuthenticated) {
         document.getElementById('welcome-heading').textContent = 'Welcome, Guest! 👋';
         document.getElementById('user-avatar').textContent = 'G';
-        streakBadge.style.display = 'none';
 
         authBtn.textContent = 'Sign In';
         authBtn.onclick = openAuthModal;
@@ -288,8 +333,6 @@ function updateUIWithUser() {
 
     document.getElementById('welcome-heading').textContent = `Welcome back, ${currentUser.name}! 👋`;
     document.getElementById('user-avatar').textContent = currentUser.name.charAt(0).toUpperCase();
-    streakBadge.style.display = 'inline';
-    streakBadge.textContent = `🔥 ${currentUser.streak} Day Streak`;
 
     authBtn.textContent = 'Sign Out';
     authBtn.onclick = logoutUser;
@@ -356,8 +399,25 @@ navButtons.forEach(btn => {
 });
 
 function switchView(viewId) {
-    const targetBtn = document.querySelector(`[data-target="${viewId}"]`);
-    if (targetBtn) targetBtn.click();
+    const targetElement = document.getElementById(viewId);
+    if (!targetElement) return;
+
+    document.querySelectorAll('.view-section').forEach(v => v.classList.remove('active'));
+    targetElement.classList.add('active');
+
+    document.querySelectorAll('.nav-btn').forEach(b => {
+        b.classList.remove('active');
+        if (b.getAttribute('data-target') === viewId) {
+            b.classList.add('active');
+        }
+    });
+
+    stopAllWebcams();
+    if (viewId === 'practice-view') {
+        initWebcam('user-webcam', 'feedback-status');
+    } else if (viewId === 'quiz-view' && currentQuizMode === 'motion') {
+        initWebcam('quiz-webcam', 'quiz-cam-status');
+    }
 }
 
 // --- 5. Lesson Video Modal & Post-Lesson Practice Trigger ---
