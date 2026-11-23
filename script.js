@@ -644,7 +644,7 @@ let currentQuizMode = 'mc';
 let mcIndex = 0;
 let mcScore = 0;
 
-const mcQuestions = [
+let mcQuestions = [
     {
         visual: '✊ (Closed fist, thumb resting against side of index finger)',
         question: 'Which ASL alphabet letter does this hand shape represent?',
@@ -676,38 +676,155 @@ function setQuizMode(mode) {
     stopAllWebcams();
     if (mode === 'motion') {
         initWebcam('quiz-webcam', 'quiz-cam-status');
+    } else if (mode === 'mc') {
+        loadOrGenerateDailyQuiz();
     }
 }
 
 function renderMCQuestion() {
+    if (!mcQuestions || mcQuestions.length === 0) {
+        mcQuestions = [{
+            visual: '✊ (Closed fist, thumb resting against side of index finger)',
+            question: 'Which ASL alphabet letter does this hand shape represent?',
+            options: ['Letter A', 'Letter S', 'Letter E', 'Letter T'],
+            correct: 0
+        }];
+    }
+
+    if (mcIndex >= mcQuestions.length) {
+        mcIndex = 0;
+    }
+
     const q = mcQuestions[mcIndex];
+    
+    const optionsArray = Array.isArray(q.options) ? q.options : ['Option 1', 'Option 2', 'Option 3', 'Option 4'];
+    const correctIndex = typeof q.correct === 'number' ? q.correct : 0;
+
     document.getElementById('mc-question-counter').textContent = `Question ${mcIndex + 1} of ${mcQuestions.length}`;
     document.getElementById('mc-score-display').textContent = `Score: ${mcScore}`;
-    document.getElementById('mc-visual-cue').textContent = q.visual;
-    document.getElementById('mc-question-text').textContent = q.question;
+    document.getElementById('mc-visual-cue').textContent = q.visual || 'Visual cue loading...';
+    document.getElementById('mc-question-text').textContent = q.question || 'Question text loading...';
     document.getElementById('mc-feedback-banner').style.display = 'none';
     document.getElementById('mc-next-btn').style.display = 'none';
 
     const optionsDiv = document.getElementById('mc-options');
     optionsDiv.innerHTML = '';
-    q.options.forEach((opt, idx) => {
+    
+    optionsArray.forEach((opt, idx) => {
         const btn = document.createElement('button');
         btn.className = 'mc-option-btn';
         btn.textContent = opt;
-        btn.onclick = () => checkMCAnswer(idx, btn);
+        btn.onclick = () => checkMCAnswer(idx, correctIndex, btn);
         optionsDiv.appendChild(btn);
     });
 }
 
-function checkMCAnswer(selectedIndex, clickedBtn) {
-    const q = mcQuestions[mcIndex];
+async function loadOrGenerateDailyQuiz() {
+    const todayStr = new Date().toDateString();
+    
+    const fallbackQuestions = [
+        {
+            visual: '✊ (Closed fist, thumb resting against side of index finger)',
+            question: 'Which ASL alphabet letter does this hand shape represent?',
+            options: ['Letter A', 'Letter S', 'Letter E', 'Letter T'],
+            correct: 0
+        }
+    ];
+
+    if (currentUser.isAuthenticated && currentUser.email && supabaseClient) {
+        try {
+            console.log("1. Checking Supabase for today's quiz...");
+            const { data, error } = await supabaseClient
+                .from('daily_quizzes')
+                .select('*')
+                .eq('student_email', currentUser.email)
+                .eq('quiz_date', todayStr)
+                .maybeSingle();
+
+            if (data && data.questions_json) {
+                console.log("2. Cached quiz found in Supabase!");
+                mcQuestions = data.questions_json;
+                mcIndex = 0;
+                mcScore = 0;
+                renderMCQuestion();
+                return;
+            }
+        } catch (e) {
+            console.warn("Could not fetch daily quiz from Supabase, checking local cache:", e);
+        }
+    }
+
+    if (currentUser.dailyQuizDate === todayStr && currentUser.dailyQuizQuestions && currentUser.dailyQuizQuestions.length > 0) {
+        console.log("3. Cached quiz found in local user session!");
+        mcQuestions = currentUser.dailyQuizQuestions;
+        mcIndex = 0;
+        mcScore = 0;
+        renderMCQuestion();
+        return;
+    }
+
+    console.log("4. No cache found. Calling Supabase Edge Function...");
+    const completedLessons = currentUser.watchedAlphabetLessons || ['ASL Alphabet: Letters A – E'];
+    const progressPercent = currentUser.progress || 0;
+
+    if (!supabaseClient) {
+        mcQuestions = fallbackQuestions;
+        renderMCQuestion();
+        return;
+    }
+
+    try {
+        const { data, error } = await supabaseClient.functions.invoke('generate-quiz', {
+            body: { 
+                completedLessons: completedLessons, 
+                progressPercent: progressPercent 
+            }
+        });
+
+        if (error) throw error;
+
+        console.log("5. Edge Function response received!");
+        let rawText = data.candidates?.[0]?.content?.parts?.[0]?.text || "";
+        rawText = rawText.replace(/```json/g, '').replace(/```/g, '').trim();
+
+        const parsedQuestions = JSON.parse(rawText);
+
+        if (Array.isArray(parsedQuestions) && parsedQuestions.length > 0) {
+            mcQuestions = parsedQuestions;
+            currentUser.dailyQuizDate = todayStr;
+            currentUser.dailyQuizQuestions = parsedQuestions;
+            saveProgress();
+
+            if (currentUser.isAuthenticated && currentUser.email) {
+                await supabaseClient.from('daily_quizzes').upsert({
+                    student_email: currentUser.email,
+                    quiz_date: todayStr,
+                    questions_json: parsedQuestions,
+                    completed: false
+                }, { onConflict: 'student_email,quiz_date' });
+                console.log("6. New daily quiz successfully saved to Supabase.");
+            }
+        } else {
+            mcQuestions = fallbackQuestions;
+        }
+    } catch (err) {
+        console.warn("Using fallback quiz questions due to Edge Function or parsing error:", err);
+        mcQuestions = fallbackQuestions;
+    }
+
+    mcIndex = 0;
+    mcScore = 0;
+    renderMCQuestion();
+}
+
+function checkMCAnswer(selectedIndex, correctIndex, clickedBtn) {
     const buttons = document.querySelectorAll('.mc-option-btn');
     buttons.forEach(b => b.disabled = true);
 
     const feedback = document.getElementById('mc-feedback-banner');
     feedback.style.display = 'block';
 
-    if (selectedIndex === q.correct) {
+    if (selectedIndex === correctIndex) {
         clickedBtn.classList.add('correct');
         mcScore++;
         if (currentUser.isAuthenticated) {
@@ -721,8 +838,10 @@ function checkMCAnswer(selectedIndex, clickedBtn) {
         }
     } else {
         clickedBtn.classList.add('wrong');
-        buttons[q.correct].classList.add('correct');
-        feedback.textContent = `Not quite — the correct answer is ${q.options[q.correct]}.`;
+        if (buttons[correctIndex]) {
+            buttons[correctIndex].classList.add('correct');
+        }
+        feedback.textContent = `Not quite — the correct answer is option ${correctIndex + 1}.`;
     }
 
     document.getElementById('mc-score-display').textContent = `Score: ${mcScore}`;
@@ -759,6 +878,28 @@ function verifyMotionQuiz() {
         }
     }, 1500);
 }
+
+let handLandmarker = undefined;
+let runningMode = "VIDEO";
+
+async function createHandLandmarker() {
+    const vision = await window.FilesetResolver.forVisionTasks(
+        "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.0/wasm"
+    );
+    handLandmarker = await vision.Handler.createFromOptions(vision, {
+        baseOptions: {
+            modelAssetPath: `https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task`,
+            delegate: "GPU"
+        },
+        runningMode: runningMode,
+        numHands: 1
+    });
+    console.log("MediaPipe HandLandmarker initialized successfully.");
+}
+
+window.addEventListener('DOMContentLoaded', () => {
+    createHandLandmarker();
+});
 
 function nextMotionChallenge() {
     motionChallengeIdx = (motionChallengeIdx + 1) % motionChallenges.length;
