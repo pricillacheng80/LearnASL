@@ -7,7 +7,11 @@
     <!-- Supabase Client Library -->
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <!-- Google MediaPipe Vision Tasks CDN -->
-    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.0/vision_bundle.js" crossorigin="anonymous"></script>
+    <script type="module">
+        import { FilesetResolver, HandLandmarker } from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.0/+esm";
+        window.FilesetResolver = FilesetResolver;
+        window.HandLandmarker = HandLandmarker;
+    </script>    
     <link rel="stylesheet" href="style.css">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 </head>
@@ -209,11 +213,11 @@
                     <div class="video-feed-wrapper">
                         <video id="user-webcam" autoplay playsinline muted></video>
                         <div id="ai-overlay-canvas" class="overlay-canvas">
-                            <div class="feedback-badge" id="feedback-status">Waiting for camera...</div>
+                            <div class="feedback-badge" id="feedback-status">Camera is off. Please turn on your camera to practice signing.</div>
                         </div>
                     </div>
                     <div class="card-actions" style="margin-top: 10px;">
-                        <button class="btn secondary" id="cam-toggle-btn" onclick="toggleCameraFeed()">Turn Camera Off</button>
+                        <button class="btn secondary" id="cam-toggle-btn" onclick="toggleCameraFeed()">Turn Camera On</button>
                     </div>
 
                     <div class="feedback-sidebar">
@@ -240,10 +244,11 @@
             </div>
 
             <div class="quiz-mode-selector">
-                <button class="btn primary" id="btn-mc-quiz" onclick="setQuizMode('mc')">1. Multiple Choice Quiz</button>
-                <button class="btn secondary" id="btn-motion-quiz" onclick="setQuizMode('motion')">2. Camera Hand-Motion Quiz</button>
+                <button type="button" class="btn primary" id="btn-mc-quiz" onclick="setQuizMode('mc')">1. Multiple Choice Quiz</button>
+                <button type="button" class="btn secondary" id="btn-motion-quiz" onclick="setQuizMode('motion')">2. Camera Hand-Motion Quiz</button>
             </div>
 
+            <!-- Multiple Choice Quiz Only (No Camera) -->
             <div id="mc-quiz-container" class="card quiz-box">
                 <div class="quiz-header">
                     <span id="mc-question-counter">Question 1 of 3</span>
@@ -253,9 +258,10 @@
                 <h3 id="mc-question-text">Which ASL letter is formed by a closed fist with the thumb resting on the side of the index finger?</h3>
                 <div class="mc-options-grid" id="mc-options"></div>
                 <div id="mc-feedback-banner" class="quiz-feedback" style="display: none;"></div>
-                <button class="btn primary" id="mc-next-btn" style="display: none; margin-top: 1rem;" onclick="nextMCQuestion()">Next Question</button>
+                <button type="button" class="btn primary" id="mc-next-btn" style="display: none; margin-top: 1rem;" onclick="nextMCQuestion()">Next Question</button>
             </div>
 
+            <!-- Camera Hand-Motion Quiz Only -->
             <div id="motion-quiz-container" class="card quiz-box" style="display: none;">
                 <div class="quiz-header">
                     <span>Live Motion Challenge</span>
@@ -264,12 +270,12 @@
                 <h3 id="motion-prompt-text">Sign the letter: "B" (Flat hand, fingers together, thumb tucked across palm)</h3>
                 <div class="motion-quiz-cam-area">
                     <video id="quiz-webcam" autoplay playsinline muted></video>
-                    <div class="feedback-badge" id="quiz-cam-status">Click "Verify Hand Motion" when ready</div>
+                    <div class="feedback-badge" id="quiz-cam-status">Camera is off. Press "Turn Camera On" when ready.</div>
                 </div>
                 <div class="card-actions" style="margin-top: 1rem;">
-                    <button class="btn primary" onclick="verifyMotionQuiz()">Verify Hand Motion</button>
-                    <button class="btn secondary" onclick="nextMotionChallenge()">Skip / Next Challenge</button>
-                    <button class="btn secondary" id="quiz-cam-toggle-btn" onclick="toggleQuizCameraFeed()">Turn Camera Off</button>
+                    <button type="button" class="btn primary" onclick="verifyMotionQuiz()">Verify Hand Motion</button>
+                    <button type="button" class="btn secondary" onclick="nextMotionChallenge()">Skip / Next Challenge</button>
+                    <button type="button" class="btn primary" id="quiz-cam-toggle-btn" onclick="toggleQuizCameraFeed()">Turn Camera On</button>
                 </div>
             </div>
         </section>

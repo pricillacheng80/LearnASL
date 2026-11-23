@@ -1,4 +1,4 @@
-// --- 1. Supabase Initialization (Supports sb_publishable_ and legacy eyJ keys) ---
+// --- 1. Supabase Initialization ---
 const SUPABASE_URL = 'https://mecjgmcuwtqzkrmwecfq.supabase.co';
 const SUPABASE_ANON_KEY = 'sb_publishable_RNE3_cZ8XbDF_YJaFIA05w_hBcK2F2P';
 const ADMIN_EMAILS = ['pricilla.cheng123@gmail.com']; // Add your admin email(s) here
@@ -97,6 +97,9 @@ window.addEventListener('DOMContentLoaded', () => {
     updateUIWithUser();
     renderMCQuestion();
     updateNetworkStatus();
+    updateCameraToggleButtonText();
+    updateQuizCameraToggleButtonText();
+    createHandLandmarker();
 });
 
 // --- 3. Smart Authentication & Password Validation ---
@@ -132,7 +135,7 @@ function switchAuthTab(mode) {
     document.getElementById('tab-login').classList.toggle('active', mode === 'login');
     document.getElementById('tab-signup').classList.toggle('active', mode === 'signup');
     document.getElementById('name-field').style.display = mode === 'signup' ? 'block' : 'none';
-    
+
     const hint = document.getElementById('password-rules-hint');
     if (hint) {
         hint.style.display = mode === 'signup' ? 'block' : 'none';
@@ -278,7 +281,7 @@ async function logoutUser() {
         }
         localStorage.removeItem('signbridge_authenticated_user');
         currentUser = { ...defaultGuestUser };
-        
+
         switchView('dashboard-view');
         updateUIWithUser();
         openAuthModal();
@@ -293,11 +296,16 @@ async function saveProgress() {
 
     if (supabaseClient) {
         try {
-            await supabaseClient.from('student_progress').upsert({
-                student_name: currentUser.name,
-                progress_percentage: currentUser.progress,
-                streak_days: currentUser.streak
-            });
+            await supabaseClient
+                .from('student_progress')
+                .upsert(
+                    {
+                        student_name: currentUser.name,
+                        progress_percentage: currentUser.progress,
+                        streak_days: currentUser.streak
+                    },
+                    { onConflict: 'student_name' }
+                );
         } catch (e) {
             console.warn("Cloud sync skipped:", e);
         }
@@ -375,26 +383,40 @@ function toggleAward(cardId, statusId, isUnlocked) {
     }
 }
 
-// --- 4. Navigation & View Switching ---
+// --- 4. Navigation & View Switching (Camera stays OFF until user clicks Turn Camera On) ---
 const navButtons = document.querySelectorAll('.nav-btn');
 const views = document.querySelectorAll('.view-section');
+
+function handleViewCameraLifecycle(viewId) {
+    // Always stop active tracks when leaving a view so the camera indicator turns off
+    stopAllWebcams();
+
+    if (viewId === 'practice-view') {
+        const badgeEl = document.getElementById('feedback-status');
+        if (badgeEl) {
+            badgeEl.textContent = 'Camera is off. Press "Turn Camera On" to practice signing.';
+        }
+        updateCameraToggleButtonText();
+    } else if (viewId === 'quiz-view') {
+        const badgeEl = document.getElementById('quiz-cam-status');
+        if (badgeEl) {
+            badgeEl.textContent = 'Camera is off. Press "Turn Camera On" when ready.';
+        }
+        updateQuizCameraToggleButtonText();
+    }
+}
 
 navButtons.forEach(btn => {
     btn.addEventListener('click', () => {
         const targetViewId = btn.getAttribute('data-target');
-        
+
         navButtons.forEach(b => b.classList.remove('active'));
         btn.classList.add('active');
-        
+
         views.forEach(v => v.classList.remove('active'));
         document.getElementById(targetViewId).classList.add('active');
 
-        stopAllWebcams();
-        if (targetViewId === 'practice-view') {
-            initWebcam('user-webcam', 'feedback-status');
-        } else if (targetViewId === 'quiz-view' && currentQuizMode === 'motion') {
-            initWebcam('quiz-webcam', 'quiz-cam-status');
-        }
+        handleViewCameraLifecycle(targetViewId);
     });
 });
 
@@ -412,12 +434,7 @@ function switchView(viewId) {
         }
     });
 
-    stopAllWebcams();
-    if (viewId === 'practice-view') {
-        initWebcam('user-webcam', 'feedback-status');
-    } else if (viewId === 'quiz-view' && currentQuizMode === 'motion') {
-        initWebcam('quiz-webcam', 'quiz-cam-status');
-    }
+    handleViewCameraLifecycle(viewId);
 }
 
 // --- 5. Lesson Video Modal & Post-Lesson Practice Trigger ---
@@ -447,90 +464,127 @@ function closeLessonModal() {
     document.getElementById('lesson-modal').classList.remove('active');
 }
 
-// --- 6. Low-Latency Webcam Management ---
+// --- 6. Opt-In Low-Latency Webcam Management ---
 let activeStream = null;
-let isCameraActive = true;
-let isQuizCameraActive = true;
+let activeCameraTarget = null; // 'practice' | 'quiz' | null
+let isCameraActive = false;
+let isQuizCameraActive = false;
+let isRequestingCamera = false;
 
 function stopAllWebcams() {
     if (activeStream) {
         activeStream.getTracks().forEach(track => track.stop());
         activeStream = null;
     }
+
     const practiceVid = document.getElementById('user-webcam');
     const quizVid = document.getElementById('quiz-webcam');
     if (practiceVid) practiceVid.srcObject = null;
     if (quizVid) quizVid.srcObject = null;
+
+    isCameraActive = false;
+    isQuizCameraActive = false;
+    activeCameraTarget = null;
+
+    updateCameraToggleButtonText();
+    updateQuizCameraToggleButtonText();
 }
 
-async function initWebcam(videoElementId, statusBadgeId) {
+async function initWebcam(videoElementId, statusBadgeId, targetMode) {
+    if (isRequestingCamera) return false;
+    isRequestingCamera = true;
+
     const videoEl = document.getElementById(videoElementId);
     const badgeEl = document.getElementById(statusBadgeId);
+
+    stopAllWebcams();
+
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        isRequestingCamera = false;
+        if (badgeEl) badgeEl.textContent = "Camera not supported on this device — Simulation mode active.";
+        return false;
+    }
+
     try {
-        badgeEl.textContent = "Connecting camera...";
-        activeStream = await navigator.mediaDevices.getUserMedia({
-            video: { width: { ideal: 480 }, height: { ideal: 360 }, frameRate: { ideal: 20 } },
+        if (badgeEl) badgeEl.textContent = "Requesting camera permission...";
+        const stream = await navigator.mediaDevices.getUserMedia({
+            video: {
+                facingMode: "user", // Front camera works naturally on phones & laptops
+                width: { ideal: 480 },
+                height: { ideal: 360 },
+                frameRate: { ideal: 20 }
+            },
             audio: false
         });
-        videoEl.srcObject = activeStream;
-        isCameraActive = true;
-        isQuizCameraActive = true;
-        updateCameraToggleButtonText();
-        badgeEl.textContent = "Camera active. Position your hands in frame.";
+
+        activeStream = stream;
+        activeCameraTarget = targetMode;
+        if (videoEl) {
+            videoEl.srcObject = activeStream;
+        }
+
+        if (targetMode === 'practice') {
+            isCameraActive = true;
+            updateCameraToggleButtonText();
+        } else if (targetMode === 'quiz') {
+            isQuizCameraActive = true;
+            updateQuizCameraToggleButtonText();
+        }
+
+        if (badgeEl) badgeEl.textContent = "Camera active. Position your hands in frame.";
+        return true;
     } catch (error) {
-        badgeEl.textContent = "Camera unavailable — Simulation mode active.";
-        isCameraActive = false;
-        isQuizCameraActive = false;
-        updateCameraToggleButtonText();
+        stopAllWebcams();
+        if (badgeEl) {
+            badgeEl.textContent = error.name === "NotAllowedError"
+                ? "Camera permission denied — Simulation mode active."
+                : "Camera unavailable — Simulation mode active.";
+        }
+        return false;
+    } finally {
+        isRequestingCamera = false;
     }
 }
 
-function toggleCameraFeed() {
-    const videoEl = document.getElementById('user-webcam');
-    const badgeEl = document.getElementById('feedback-status');
-
-    if (isCameraActive) {
-        if (activeStream) {
-            activeStream.getTracks().forEach(track => track.stop());
-            activeStream = null;
-        }
-        videoEl.srcObject = null;
-        isCameraActive = false;
-        badgeEl.textContent = "Camera is turned off.";
+async function toggleCameraFeed() {
+    if (isCameraActive && activeCameraTarget === 'practice') {
+        stopAllWebcams();
+        const badgeEl = document.getElementById('feedback-status');
+        if (badgeEl) badgeEl.textContent = 'Camera is off. Press "Turn Camera On" to practice signing.';
     } else {
-        initWebcam('user-webcam', 'feedback-status');
+        await initWebcam('user-webcam', 'feedback-status', 'practice');
     }
-    updateCameraToggleButtonText();
 }
 
 function updateCameraToggleButtonText() {
     const toggleBtn = document.getElementById('cam-toggle-btn');
     if (toggleBtn) {
-        toggleBtn.textContent = isCameraActive ? "Turn Camera Off" : "Turn Camera On";
-        toggleBtn.className = isCameraActive ? "btn secondary" : "btn primary";
+        const active = isCameraActive && activeCameraTarget === 'practice';
+        toggleBtn.textContent = active ? "Turn Camera Off" : "Turn Camera On";
+        toggleBtn.className = active ? "btn secondary" : "btn primary";
     }
 }
 
-function toggleQuizCameraFeed() {
-    const videoEl = document.getElementById('quiz-webcam');
+async function toggleQuizCameraFeed() {
     const badgeEl = document.getElementById('quiz-cam-status');
-    const toggleBtn = document.getElementById('quiz-cam-toggle-btn');
 
-    if (isQuizCameraActive) {
-        if (activeStream) {
-            activeStream.getTracks().forEach(track => track.stop());
-            activeStream = null;
+    if (isQuizCameraActive && activeCameraTarget === 'quiz') {
+        stopAllWebcams();
+        if (badgeEl) {
+            badgeEl.textContent = 'Camera is off. Press "Turn Camera On" when ready.';
         }
-        videoEl.srcObject = null;
-        isQuizCameraActive = false;
-        toggleBtn.textContent = "Turn Camera On";
-        toggleBtn.className = "btn primary";
-        badgeEl.textContent = "Camera is turned off.";
     } else {
-        initWebcam('quiz-webcam', 'quiz-cam-status');
-        isQuizCameraActive = true;
-        toggleBtn.textContent = "Turn Camera Off";
-        toggleBtn.className = "btn secondary";
+        await initWebcam('quiz-webcam', 'quiz-cam-status', 'quiz');
+    }
+    updateQuizCameraToggleButtonText();
+}
+
+function updateQuizCameraToggleButtonText() {
+    const toggleBtn = document.getElementById('quiz-cam-toggle-btn');
+    if (toggleBtn) {
+        const active = isQuizCameraActive && activeCameraTarget === 'quiz';
+        toggleBtn.textContent = active ? "Turn Camera Off" : "Turn Camera On";
+        toggleBtn.className = active ? "btn secondary" : "btn primary";
     }
 }
 
@@ -675,7 +729,8 @@ function setQuizMode(mode) {
 
     stopAllWebcams();
     if (mode === 'motion') {
-        initWebcam('quiz-webcam', 'quiz-cam-status');
+        const badgeEl = document.getElementById('quiz-cam-status');
+        if (badgeEl) badgeEl.textContent = 'Camera is off. Press "Turn Camera On" when ready.';
     } else if (mode === 'mc') {
         loadOrGenerateDailyQuiz();
     }
@@ -696,7 +751,7 @@ function renderMCQuestion() {
     }
 
     const q = mcQuestions[mcIndex];
-    
+
     const optionsArray = Array.isArray(q.options) ? q.options : ['Option 1', 'Option 2', 'Option 3', 'Option 4'];
     const correctIndex = typeof q.correct === 'number' ? q.correct : 0;
 
@@ -709,7 +764,7 @@ function renderMCQuestion() {
 
     const optionsDiv = document.getElementById('mc-options');
     optionsDiv.innerHTML = '';
-    
+
     optionsArray.forEach((opt, idx) => {
         const btn = document.createElement('button');
         btn.className = 'mc-option-btn';
@@ -721,7 +776,7 @@ function renderMCQuestion() {
 
 async function loadOrGenerateDailyQuiz() {
     const todayStr = new Date().toDateString();
-    
+
     const fallbackQuestions = [
         {
             visual: '✊ (Closed fist, thumb resting against side of index finger)',
@@ -775,9 +830,9 @@ async function loadOrGenerateDailyQuiz() {
 
     try {
         const { data, error } = await supabaseClient.functions.invoke('generate-quiz', {
-            body: { 
-                completedLessons: completedLessons, 
-                progressPercent: progressPercent 
+            body: {
+                completedLessons: completedLessons,
+                progressPercent: progressPercent
             }
         });
 
@@ -883,28 +938,34 @@ let handLandmarker = undefined;
 let runningMode = "VIDEO";
 
 async function createHandLandmarker() {
-    const vision = await window.FilesetResolver.forVisionTasks(
-        "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.0/wasm"
-    );
-    handLandmarker = await vision.Handler.createFromOptions(vision, {
-        baseOptions: {
-            modelAssetPath: `https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task`,
-            delegate: "GPU"
-        },
-        runningMode: runningMode,
-        numHands: 1
-    });
-    console.log("MediaPipe HandLandmarker initialized successfully.");
+    if (!window.FilesetResolver || !window.HandLandmarker) {
+        console.warn("MediaPipe FilesetResolver or HandLandmarker not loaded.");
+        return;
+    }
+    try {
+        const vision = await window.FilesetResolver.forVisionTasks(
+            "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.0/wasm"
+        );
+        handLandmarker = await window.HandLandmarker.createFromOptions(vision, {
+            baseOptions: {
+                modelAssetPath: "https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task",
+                delegate: "GPU"
+            },
+            runningMode: runningMode,
+            numHands: 1
+        });
+        console.log("MediaPipe HandLandmarker initialized successfully.");
+    } catch (err) {
+        console.warn("MediaPipe HandLandmarker initialization skipped:", err);
+    }
 }
-
-window.addEventListener('DOMContentLoaded', () => {
-    createHandLandmarker();
-});
 
 function nextMotionChallenge() {
     motionChallengeIdx = (motionChallengeIdx + 1) % motionChallenges.length;
     document.getElementById('motion-prompt-text').textContent = motionChallenges[motionChallengeIdx];
-    document.getElementById('quiz-cam-status').textContent = 'Ready for challenge!';
+    document.getElementById('quiz-cam-status').textContent = isQuizCameraActive
+        ? 'Camera active. Ready for challenge!'
+        : 'Camera is off. Press "Turn Camera On" when ready.';
 }
 
 // --- 9. Network Monitoring ---
