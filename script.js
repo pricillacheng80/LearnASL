@@ -73,10 +73,8 @@ function evaluateDailyStreak() {
         const diffDays = Math.round(diffTime / (1000 * 60 * 60 * 24));
 
         if (diffDays === 1) {
-            // Consecutive day login — increment streak
             currentUser.streak = (currentUser.streak || 1) + 1;
         } else if (diffDays > 1) {
-            // Missed one or more days — reset streak back to 1
             currentUser.streak = 1;
         }
         currentUser.lastLoginDate = todayStr;
@@ -388,7 +386,6 @@ const navButtons = document.querySelectorAll('.nav-btn');
 const views = document.querySelectorAll('.view-section');
 
 function handleViewCameraLifecycle(viewId) {
-    // Always stop active tracks when leaving a view so the camera indicator turns off
     stopAllWebcams();
 
     if (viewId === 'practice-view') {
@@ -437,17 +434,107 @@ function switchView(viewId) {
     handleViewCameraLifecycle(viewId);
 }
 
-// --- 5. Lesson Video Modal & Post-Lesson Practice Trigger ---
-function openLessonModal(title, practiceTarget, category) {
+// --- 5. Lesson Video Modal, YouTube Search & Post-Lesson Practice Trigger ---
+const YOUTUBE_API_KEY = 'AIzaSyBmkLdL4ieFxPfLvHCXsCap_a-hgKvxTOE';
+const aslVideoCache = {};
+
+async function searchASLVideos(query, maxResults = 3) {
+    const cacheKey = `${query}_${maxResults}`;
+    if (aslVideoCache[cacheKey]) {
+        return aslVideoCache[cacheKey];
+    }
+
+if (!YOUTUBE_API_KEY || YOUTUBE_API_KEY === 'AIzaSyBmkLdL4ieFxPfLvHCXsCap_a-hgKvxTOE') {
+        console.warn('Add your YouTube Data API v3 key first.');
+        return [];
+    }
+
+    const url = new URL('https://www.googleapis.com/youtube/v3/search');
+    url.searchParams.set('part', 'snippet');
+    url.searchParams.set('q', query);
+    url.searchParams.set('type', 'video');
+    url.searchParams.set('videoEmbeddable', 'true');
+    url.searchParams.set('maxResults', String(maxResults));
+    url.searchParams.set('relevanceLanguage', 'en');
+    url.searchParams.set('key', YOUTUBE_API_KEY);
+
+    try {
+        const res = await fetch(url.toString());
+        if (!res.ok) {
+            throw new Error(`YouTube API error: ${res.status}`);
+        }
+
+        const data = await res.json();
+        const videos = (data.items || [])
+            .filter(item => item.id && item.id.videoId)
+            .map(item => ({
+                videoId: item.id.videoId,
+                title: item.snippet.title,
+                channelTitle: item.snippet.channelTitle,
+                thumbnail: item.snippet.thumbnails?.medium?.url || ''
+            }));
+
+        aslVideoCache[cacheKey] = videos;
+        return videos;
+    } catch (err) {
+        console.warn('Could not load ASL videos:', err);
+        return [];
+    }
+}
+
+let ytPlayer = null;
+let isYTPlayerReady = false;
+let pendingLessonVideoId = null;
+
+function onYouTubeIframeAPIReady() {
+    ytPlayer = new YT.Player('asl-yt-player', {
+        height: '180',
+        width: '100%',
+        videoId: '',
+        playerVars: {
+            playsinline: 1,
+            rel: 0,
+            cc_load_policy: 1
+        },
+        events: {
+            onReady: (event) => {
+                isYTPlayerReady = true;
+                // If a video was requested before the player was ready, load it now
+                if (pendingLessonVideoId) {
+                    event.target.loadVideoById(pendingLessonVideoId);
+                    pendingLessonVideoId = null;
+                }
+            }
+        }
+    });
+}
+
+async function openLessonModal(title, practiceTarget, category) {
     document.getElementById('modal-lesson-title').textContent = title;
-    document.getElementById('video-demo-visual').textContent = `🤟 Signing: "${practiceTarget}"`;
     document.getElementById('lesson-modal').classList.add('active');
+
+    const query = category === 'alphabet'
+        ? `ASL sign language alphabet ${practiceTarget}`
+        : `ASL sign language "${practiceTarget}"`;
+
+    const videos = await searchASLVideos(query, 1);
+    const chosenVideo = videos[0];
+    const videoId = chosenVideo ? chosenVideo.videoId : null;
+
+    if (videoId) {
+        if (ytPlayer && isYTPlayerReady && typeof ytPlayer.loadVideoById === 'function') {
+            ytPlayer.loadVideoById(videoId);
+        } else {
+            // Queue it up for when the player fires its onReady event
+            pendingLessonVideoId = videoId;
+        }
+    }
 
     const practiceBtn = document.getElementById('practice-after-lesson-btn');
     practiceBtn.onclick = () => {
         closeLessonModal();
         if (currentUser.isAuthenticated) {
-            currentUser.progress = Math.min(100, currentUser.progress + 10);
+            currentUser.progress = Math.min(100, currentUser.progress + 5);
             saveProgress();
             updateUIWithUser();
         }
@@ -461,12 +548,15 @@ function openLessonModal(title, practiceTarget, category) {
 }
 
 function closeLessonModal() {
+    if (ytPlayer && isYTPlayerReady && typeof ytPlayer.stopVideo === 'function') {
+        ytPlayer.stopVideo();
+    }
     document.getElementById('lesson-modal').classList.remove('active');
 }
 
 // --- 6. Opt-In Low-Latency Webcam Management ---
 let activeStream = null;
-let activeCameraTarget = null; // 'practice' | 'quiz' | null
+let activeCameraTarget = null;
 let isCameraActive = false;
 let isQuizCameraActive = false;
 let isRequestingCamera = false;
@@ -509,7 +599,7 @@ async function initWebcam(videoElementId, statusBadgeId, targetMode) {
         if (badgeEl) badgeEl.textContent = "Requesting camera permission...";
         const stream = await navigator.mediaDevices.getUserMedia({
             video: {
-                facingMode: "user", // Front camera works naturally on phones & laptops
+                facingMode: "user",
                 width: { ideal: 480 },
                 height: { ideal: 360 },
                 frameRate: { ideal: 20 }
@@ -788,16 +878,14 @@ async function loadOrGenerateDailyQuiz() {
 
     if (currentUser.isAuthenticated && currentUser.email && supabaseClient) {
         try {
-            console.log("1. Checking Supabase for today's quiz...");
-            const { data, error } = await supabaseClient
+            const { data } = await supabaseClient
                 .from('daily_quizzes')
                 .select('*')
                 .eq('student_email', currentUser.email)
                 .eq('quiz_date', todayStr)
                 .maybeSingle();
 
-            if (data && data.questions_json) {
-                console.log("2. Cached quiz found in Supabase!");
+            if (data && Array.isArray(data.questions_json) && data.questions_json.length > 0) {
                 mcQuestions = data.questions_json;
                 mcIndex = 0;
                 mcScore = 0;
@@ -809,8 +897,7 @@ async function loadOrGenerateDailyQuiz() {
         }
     }
 
-    if (currentUser.dailyQuizDate === todayStr && currentUser.dailyQuizQuestions && currentUser.dailyQuizQuestions.length > 0) {
-        console.log("3. Cached quiz found in local user session!");
+    if (currentUser.dailyQuizDate === todayStr && Array.isArray(currentUser.dailyQuizQuestions) && currentUser.dailyQuizQuestions.length > 0) {
         mcQuestions = currentUser.dailyQuizQuestions;
         mcIndex = 0;
         mcScore = 0;
@@ -818,12 +905,13 @@ async function loadOrGenerateDailyQuiz() {
         return;
     }
 
-    console.log("4. No cache found. Calling Supabase Edge Function...");
     const completedLessons = currentUser.watchedAlphabetLessons || ['ASL Alphabet: Letters A – E'];
     const progressPercent = currentUser.progress || 0;
 
     if (!supabaseClient) {
         mcQuestions = fallbackQuestions;
+        mcIndex = 0;
+        mcScore = 0;
         renderMCQuestion();
         return;
     }
@@ -838,11 +926,27 @@ async function loadOrGenerateDailyQuiz() {
 
         if (error) throw error;
 
-        console.log("5. Edge Function response received!");
-        let rawText = data.candidates?.[0]?.content?.parts?.[0]?.text || "";
-        rawText = rawText.replace(/```json/g, '').replace(/```/g, '').trim();
+        let parsedQuestions = null;
 
-        const parsedQuestions = JSON.parse(rawText);
+        if (Array.isArray(data)) {
+            parsedQuestions = data;
+        } else if (Array.isArray(data?.questions)) {
+            parsedQuestions = data.questions;
+        } else {
+            let rawText =
+                data?.candidates?.[0]?.content?.parts?.[0]?.text ||
+                data?.text ||
+                "";
+
+            if (typeof rawText === "string") {
+                rawText = rawText.replace(/```json/gi, "").replace(/```/g, "").trim();
+                if (rawText) {
+                    parsedQuestions = JSON.parse(rawText);
+                }
+            } else if (rawText && typeof rawText === "object") {
+                parsedQuestions = rawText;
+            }
+        }
 
         if (Array.isArray(parsedQuestions) && parsedQuestions.length > 0) {
             mcQuestions = parsedQuestions;
@@ -857,7 +961,6 @@ async function loadOrGenerateDailyQuiz() {
                     questions_json: parsedQuestions,
                     completed: false
                 }, { onConflict: 'student_email,quiz_date' });
-                console.log("6. New daily quiz successfully saved to Supabase.");
             }
         } else {
             mcQuestions = fallbackQuestions;
