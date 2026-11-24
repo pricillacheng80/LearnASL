@@ -435,7 +435,6 @@ function switchView(viewId) {
 }
 
 // --- 5. Lesson Video Modal, YouTube Search & Post-Lesson Practice Trigger ---
-const YOUTUBE_API_KEY = 'AIzaSyBmkLdL4ieFxPfLvHCXsCap_a-hgKvxTOE';
 const aslVideoCache = {};
 
 async function searchASLVideos(query, maxResults = 3) {
@@ -444,27 +443,20 @@ async function searchASLVideos(query, maxResults = 3) {
         return aslVideoCache[cacheKey];
     }
 
-if (!YOUTUBE_API_KEY || YOUTUBE_API_KEY === 'AIzaSyBmkLdL4ieFxPfLvHCXsCap_a-hgKvxTOE') {
-        console.warn('Add your YouTube Data API v3 key first.');
+    if (!supabaseClient) {
+        console.warn('Supabase client is required to call the secure YouTube edge function.');
         return [];
     }
 
-    const url = new URL('https://www.googleapis.com/youtube/v3/search');
-    url.searchParams.set('part', 'snippet');
-    url.searchParams.set('q', query);
-    url.searchParams.set('type', 'video');
-    url.searchParams.set('videoEmbeddable', 'true');
-    url.searchParams.set('maxResults', String(maxResults));
-    url.searchParams.set('relevanceLanguage', 'en');
-    url.searchParams.set('key', YOUTUBE_API_KEY);
-
     try {
-        const res = await fetch(url.toString());
-        if (!res.ok) {
-            throw new Error(`YouTube API error: ${res.status}`);
+        const { data, error } = await supabaseClient.functions.invoke('search-youtube', {
+            body: { query, maxResults }
+        });
+
+        if (error) {
+            throw error;
         }
 
-        const data = await res.json();
         const videos = (data.items || [])
             .filter(item => item.id && item.id.videoId)
             .map(item => ({
@@ -477,7 +469,7 @@ if (!YOUTUBE_API_KEY || YOUTUBE_API_KEY === 'AIzaSyBmkLdL4ieFxPfLvHCXsCap_a-hgKv
         aslVideoCache[cacheKey] = videos;
         return videos;
     } catch (err) {
-        console.warn('Could not load ASL videos:', err);
+        console.warn('Could not load ASL videos via Edge Function:', err);
         return [];
     }
 }
